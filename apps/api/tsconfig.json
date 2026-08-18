@@ -8,7 +8,13 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "outDir": "./dist"
+    "outDir": "./dist",
+    "baseUrl": ".",
+    "paths": {
+      "@lendora/financial-engine": ["../../packages/financial-engine/src/index.ts"],
+      "@lendora/shared-types": ["../../packages/shared-types/src/index.ts"],
+      "@lendora/validation": ["../../packages/validation/src/index.ts"]
+    }
   },
   "include": ["src/**/*"]
 }

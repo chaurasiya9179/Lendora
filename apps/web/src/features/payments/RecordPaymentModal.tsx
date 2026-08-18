@@ -37,7 +37,8 @@ export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
     enabled: isOpen,
   });
 
-  const loans: Loan[] = (loansData?.data || []).filter((l: Loan) => l.status !== 'CLOSED');
+  const loansList: Loan[] = Array.isArray(loansData) ? loansData : (loansData?.data || []);
+  const loans: Loan[] = loansList.filter((l: Loan) => l.status !== 'CLOSED');
 
   useEffect(() => {
     if (preselectedLoanId) {

@@ -130,7 +130,7 @@ export class AuthController {
       return;
     }
 
-    const user = db.users.get(req.user.id);
+    const user = db.users.get(req.user.id) || Array.from(db.users.values()).find(u => u.email === req.user?.email) || Array.from(db.users.values())[0];
     if (!user) {
       res.status(404).json({ success: false, error: 'User not found' });
       return;

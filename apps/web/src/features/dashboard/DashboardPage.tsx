@@ -248,9 +248,9 @@ export const DashboardPage: React.FC = () => {
 
           <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-800 text-xs">
             {statusDistribution.map((item: any, idx: number) => (
-              <div key={item.status} className="flex items-center space-x-2">
+              <div key={item.status || item.name || `status-${idx}`} className="flex items-center space-x-2">
                 <span className="w-2 h-2 rounded-full" style={{ backgroundColor: pieColors[idx % pieColors.length] }} />
-                <span className="text-slate-400 truncate">{item.status}:</span>
+                <span className="text-slate-400 truncate">{item.status || item.name}:</span>
                 <span className="font-semibold text-slate-200">{item.count}</span>
               </div>
             ))}

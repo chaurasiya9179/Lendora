@@ -17,7 +17,10 @@
     "noFallthroughCasesInSwitch": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@lendora/financial-engine": ["../../packages/financial-engine/src"],
+      "@lendora/shared-types": ["../../packages/shared-types/src"],
+      "@lendora/validation": ["../../packages/validation/src"]
     }
   },
   "include": ["src"]

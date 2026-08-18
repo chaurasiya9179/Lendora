@@ -10,26 +10,29 @@ export type InstallmentStatus =
 export interface LoanScheduleItem {
   id: string;
   scheduleId: string;
+  loanId?: string;
   installmentNumber: number;
   dueDate: string;
   openingPrincipal: string;
   principalDue: string;
   interestDue: string;
-  feesDue: string;
-  penaltyDue: string;
-  totalEmiAmount: string;
+  feesDue?: string;
+  penaltyDue?: string;
+  totalEmiAmount?: string;
+  totalDue?: string;
   closingPrincipal: string;
-  principalPaid: string;
-  interestPaid: string;
-  penaltyPaid: string;
-  feesPaid: string;
-  totalPaid: string;
-  remainingBalance: string;
+  principalPaid?: string;
+  interestPaid?: string;
+  penaltyPaid?: string;
+  feesPaid?: string;
+  totalPaid?: string;
+  remainingBalance?: string;
   status: InstallmentStatus;
   daysOverdue: number;
+  latePenaltyAccrued?: string;
   paidDate?: string;
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export interface LoanSchedule {
@@ -37,8 +40,9 @@ export interface LoanSchedule {
   loanId: string;
   versionNumber: number;
   isActive: boolean;
+  totalInstallments?: number;
   reasonForVersion?: string;
   createdBy?: string;
   createdAt: string;
-  items: LoanScheduleItem[];
+  items?: LoanScheduleItem[];
 }

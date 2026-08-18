@@ -29,6 +29,7 @@ export const CreateCustomerModal: React.FC<CreateCustomerModalProps> = ({
     postalCode: '',
     country: 'India',
     occupation: '',
+    employerName: '',
     monthlyIncome: '',
     creditScore: 700,
     emergencyContactName: '',

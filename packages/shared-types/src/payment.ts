@@ -36,24 +36,27 @@ export interface Payment {
   principalComponent: string;
   interestComponent: string;
   penaltyComponent: string;
-  feesComponent: string;
-  excessAmount: string;
+  feesComponent?: string;
+  feeComponent?: string;
+  excessAmount?: string;
   isReversal: boolean;
   reversedPaymentId?: string;
   collectedBy?: string;
   collectedByName?: string;
+  collectedByUserId?: string;
   notes?: string;
   allocations?: PaymentAllocation[];
   createdAt: string;
 }
 
 export interface PaymentReceiptData {
+  paymentId?: string;
   businessName: string;
   businessAddress?: string;
   businessPhone?: string;
   businessEmail?: string;
-  currency: string;
-  currencySymbol: string;
+  currency?: string;
+  currencySymbol?: string;
   receiptNumber: string;
   paymentDate: string;
   customerName: string;

@@ -139,7 +139,7 @@ export const CustomersListPage: React.FC = () => {
                       <span className="text-slate-300 font-medium">{c.assignedStaffName || 'Unassigned'}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <StatusBadge status={c.customerStatus} size="sm" />
+                      <StatusBadge status={c.customerStatus || (c as any).status || 'ACTIVE'} size="sm" />
                     </td>
                     <td className="px-6 py-4 text-right">
                       <Link

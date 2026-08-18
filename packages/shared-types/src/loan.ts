@@ -62,6 +62,11 @@ export interface Loan {
   totalInterestPaid: string;
   totalPenaltyPaid: string;
   totalFeesPaid: string;
+  totalInterestExpected?: string;
+  totalAmountExpected?: string;
+  installmentAmount?: string;
+  totalInstallments?: number;
+  totalAmountPaid?: string;
   outstandingPrincipal: string;
   outstandingInterest: string;
   outstandingPenalty: string;

@@ -97,7 +97,7 @@ export const CustomerDetailPage: React.FC = () => {
                 {customer.firstName} {customer.lastName}
               </h2>
               <StatusBadge status={customer.kycStatus} />
-              <StatusBadge status={customer.customerStatus} />
+              <StatusBadge status={(customer as any).customerStatus || customer.status || 'ACTIVE'} />
             </div>
             <p className="text-xs font-mono text-brand-400 mt-0.5">{customer.customerCode}</p>
           </div>

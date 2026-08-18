@@ -108,13 +108,13 @@ export class PaymentsController {
         installmentNumber: item.installmentNumber,
         dueDate: item.dueDate,
         principalDue: item.principalDue,
-        principalPaid: item.principalPaid,
+        principalPaid: item.principalPaid || '0.00',
         interestDue: item.interestDue,
-        interestPaid: item.interestPaid,
-        penaltyDue: item.penaltyDue,
-        penaltyPaid: item.penaltyPaid,
-        feesDue: item.feesDue,
-        feesPaid: item.feesPaid,
+        interestPaid: item.interestPaid || '0.00',
+        penaltyDue: item.penaltyDue || '0.00',
+        penaltyPaid: item.penaltyPaid || '0.00',
+        feesDue: item.feesDue || '0.00',
+        feesPaid: item.feesPaid || '0.00',
       }));
 
     // Get business settings for allocation order
@@ -269,7 +269,7 @@ export class PaymentsController {
       principalPaid: payment.principalComponent,
       interestPaid: payment.interestComponent,
       penaltyPaid: payment.penaltyComponent,
-      feesPaid: payment.feesComponent,
+      feesPaid: payment.feesComponent || payment.feeComponent || '0.00',
       remainingPrincipalBalance: loan?.outstandingPrincipal || '0.00',
       collectedByName: payment.collectedByName,
       footerNote: business?.receiptFooterNote,
@@ -315,7 +315,7 @@ export class PaymentsController {
       principalComponent: `-${originalPayment.principalComponent}`,
       interestComponent: `-${originalPayment.interestComponent}`,
       penaltyComponent: `-${originalPayment.penaltyComponent}`,
-      feesComponent: `-${originalPayment.feesComponent}`,
+      feesComponent: `-${originalPayment.feesComponent || originalPayment.feeComponent || '0.00'}`,
       excessAmount: '0.00',
       isReversal: true,
       reversedPaymentId: originalPayment.id,
@@ -332,12 +332,12 @@ export class PaymentsController {
       loan.totalPrincipalPaid = Decimal.max(0, new Decimal(loan.totalPrincipalPaid).minus(originalPayment.principalComponent)).toFixed(2);
       loan.totalInterestPaid = Decimal.max(0, new Decimal(loan.totalInterestPaid).minus(originalPayment.interestComponent)).toFixed(2);
       loan.totalPenaltyPaid = Decimal.max(0, new Decimal(loan.totalPenaltyPaid).minus(originalPayment.penaltyComponent)).toFixed(2);
-      loan.totalFeesPaid = Decimal.max(0, new Decimal(loan.totalFeesPaid).minus(originalPayment.feesComponent)).toFixed(2);
+      loan.totalFeesPaid = Decimal.max(0, new Decimal(loan.totalFeesPaid).minus(originalPayment.feesComponent || originalPayment.feeComponent || '0.00')).toFixed(2);
 
       loan.outstandingPrincipal = new Decimal(loan.outstandingPrincipal).plus(originalPayment.principalComponent).toFixed(2);
       loan.outstandingInterest = new Decimal(loan.outstandingInterest).plus(originalPayment.interestComponent).toFixed(2);
       loan.outstandingPenalty = new Decimal(loan.outstandingPenalty).plus(originalPayment.penaltyComponent).toFixed(2);
-      loan.outstandingFees = new Decimal(loan.outstandingFees).plus(originalPayment.feesComponent).toFixed(2);
+      loan.outstandingFees = new Decimal(loan.outstandingFees).plus(originalPayment.feesComponent || originalPayment.feeComponent || '0.00').toFixed(2);
 
       if (loan.status === 'CLOSED') {
         loan.status = 'ACTIVE';

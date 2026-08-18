@@ -1,10 +1,12 @@
 {
   "name": "@lendora/web",
   "version": "1.0.0",
+  "type": "module",
   "private": true,
   "description": "Lendora Web Client - Modern FinTech Loan Management & CRM UI",
   "scripts": {
     "dev": "vite",
+    "prebuild": "npm --prefix ../../packages/shared-types run build && npm --prefix ../../packages/validation run build && npm --prefix ../../packages/financial-engine run build",
     "build": "tsc && vite build",
     "preview": "vite preview"
   },

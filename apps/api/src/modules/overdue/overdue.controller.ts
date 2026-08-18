@@ -71,9 +71,9 @@ export class OverdueController {
             missedCount++;
             if (diffDays > maxDaysOverdue) maxDaysOverdue = diffDays;
 
-            const pDue = new Decimal(item.principalDue).minus(item.principalPaid);
-            const iDue = new Decimal(item.interestDue).minus(item.interestPaid);
-            const penDue = new Decimal(item.penaltyDue).minus(item.penaltyPaid);
+            const pDue = new Decimal(item.principalDue).minus(item.principalPaid || '0');
+            const iDue = new Decimal(item.interestDue).minus(item.interestPaid || '0');
+            const penDue = new Decimal(item.penaltyDue || '0').minus(item.penaltyPaid || '0');
 
             loanPrincipalOverdue = loanPrincipalOverdue.plus(Decimal.max(0, pDue));
             loanInterestOverdue = loanInterestOverdue.plus(Decimal.max(0, iDue));
@@ -173,7 +173,7 @@ export class OverdueController {
         const dueDate = new Date(item.dueDate);
         if (dueDate < today) {
           const daysOverdue = Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24));
-          const unpaidEMI = new Decimal(item.totalEmiAmount).minus(item.totalPaid);
+          const unpaidEMI = new Decimal(item.totalEmiAmount || item.totalDue || '0').minus(item.totalPaid || '0');
 
           if (daysOverdue > 0 && unpaidEMI.greaterThan(0)) {
             const penaltyResult = calculateLatePenalty({
@@ -205,9 +205,9 @@ export class OverdueController {
                 };
                 db.penalties.set(newPenalty.id, newPenalty);
 
-                item.penaltyDue = new Decimal(item.penaltyDue).plus(penaltyAmount).toFixed(2);
-                item.remainingBalance = new Decimal(item.remainingBalance).plus(penaltyAmount).toFixed(2);
-                loan.outstandingPenalty = new Decimal(loan.outstandingPenalty).plus(penaltyAmount).toFixed(2);
+                item.penaltyDue = new Decimal(item.penaltyDue || '0').plus(penaltyAmount).toFixed(2);
+                item.remainingBalance = new Decimal(item.remainingBalance || item.totalEmiAmount || '0').plus(penaltyAmount).toFixed(2);
+                loan.outstandingPenalty = new Decimal(loan.outstandingPenalty || '0').plus(penaltyAmount).toFixed(2);
 
                 penaltiesAppliedCount++;
                 totalPenaltyAmountApplied = totalPenaltyAmountApplied.plus(penaltyAmount);
@@ -250,8 +250,8 @@ export class OverdueController {
 
     const scheduleItem = db.loanScheduleItems.get(penalty.scheduleItemId);
     if (scheduleItem) {
-      scheduleItem.penaltyDue = Decimal.max(0, new Decimal(scheduleItem.penaltyDue).minus(penalty.penaltyAmount)).toFixed(2);
-      scheduleItem.remainingBalance = Decimal.max(0, new Decimal(scheduleItem.remainingBalance).minus(penalty.penaltyAmount)).toFixed(2);
+      scheduleItem.penaltyDue = Decimal.max(0, new Decimal(scheduleItem.penaltyDue || '0').minus(penalty.penaltyAmount)).toFixed(2);
+      scheduleItem.remainingBalance = Decimal.max(0, new Decimal(scheduleItem.remainingBalance || scheduleItem.totalEmiAmount || '0').minus(penalty.penaltyAmount)).toFixed(2);
     }
 
     const loan = db.loans.get(penalty.loanId);

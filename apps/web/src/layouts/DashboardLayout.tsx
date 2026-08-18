@@ -32,11 +32,15 @@ export const DashboardLayout: React.FC = () => {
 
   const { data: notifications = [], refetch: refetchNotifs } = useQuery({
     queryKey: ['notifications'],
-    queryFn: api.getNotifications,
+    queryFn: async () => {
+      const res = await api.getNotifications();
+      return Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : [];
+    },
     refetchInterval: 30000,
   });
 
-  const unreadCount = notifications.filter((n: any) => n.status !== 'READ').length;
+  const notifsList = Array.isArray(notifications) ? notifications : [];
+  const unreadCount = notifsList.filter((n: any) => n && n.status !== 'READ').length;
 
   const navLinks = [
     { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'MANAGER', 'COLLECTION_AGENT', 'ACCOUNTANT'] },
@@ -178,12 +182,12 @@ export const DashboardLayout: React.FC = () => {
                     </span>
                   </div>
                   <div className="max-h-72 overflow-y-auto divide-y divide-slate-800/50">
-                    {notifications.length === 0 ? (
+                    {notifsList.length === 0 ? (
                       <div className="p-6 text-center text-xs text-slate-500">No new notifications</div>
                     ) : (
-                      notifications.map((n: any) => (
+                      notifsList.map((n: any) => (
                         <div
-                          key={n.id}
+                          key={n.id || Math.random()}
                           onClick={() => handleMarkRead(n.id)}
                           className={`p-3.5 hover:bg-slate-800/50 cursor-pointer transition flex items-start space-x-3 ${
                             n.status !== 'READ' ? 'bg-brand-500/5' : ''

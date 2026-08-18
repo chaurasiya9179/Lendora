@@ -1,6 +1,7 @@
 export type AuditAction =
   | 'USER_LOGIN'
   | 'USER_CREATED'
+  | 'USER_REGISTERED'
   | 'CUSTOMER_CREATED'
   | 'CUSTOMER_UPDATED'
   | 'CUSTOMER_KYC_VERIFIED'

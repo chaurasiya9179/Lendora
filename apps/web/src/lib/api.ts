@@ -123,9 +123,9 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
         { month: 'Aug', disbursed: 500000, collected: 44583, interest: 5833 },
       ],
       statusDistribution: [
-        { name: 'Active', value: 1, count: 1 },
-        { name: 'Fully Paid', value: 0, count: 0 },
-        { name: 'Overdue', value: 0, count: 0 },
+        { status: 'Active', name: 'Active', value: 1, count: 1 },
+        { status: 'Fully Paid', name: 'Fully Paid', value: 0, count: 0 },
+        { status: 'Overdue', name: 'Overdue', value: 0, count: 0 },
       ],
     } as unknown as T;
   }
@@ -196,13 +196,222 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       const schedule = clientStore.schedules[loan.id] || { versionNumber: 1, id: 'sch-1' };
       const items = clientStore.scheduleItems[loan.id] || [];
       const payments = clientStore.payments.filter(p => p.loanId === loan.id);
-      return { loan, schedule, items, payments } as unknown as T;
+      return { loan, schedule: { ...schedule, items }, payments } as unknown as T;
     }
 
     return {
       data: clientStore.loans,
       meta: { total: clientStore.loans.length, page: 1, limit: 20, totalPages: 1 },
     } as unknown as T;
+  }
+
+  // Loans: Update Principal
+  if (endpoint.endsWith('/principal') && method === 'PUT') {
+    const loanId = endpoint.split('/')[2];
+    const loan = clientStore.loans.find(l => l.id === loanId) || clientStore.loans[0];
+    const newPrincipal = String(body.newPrincipal);
+    loan.principalAmount = newPrincipal;
+    loan.outstandingPrincipal = Decimal.max(0, new Decimal(newPrincipal).minus(loan.totalPrincipalPaid || 0)).toFixed(2);
+    loan.updatedAt = new Date().toISOString();
+
+    const remainingInstallments = Math.max(1, loan.tenureValue - (loan.paidInstallmentsCount || 0));
+    const newScheduleGen = generateAmortizationSchedule({
+      principalAmount: newPrincipal,
+      annualInterestRate: loan.interestRate,
+      calculationMethod: loan.interestCalculationMethod,
+      paymentFrequency: loan.paymentFrequency,
+      totalInstallments: remainingInstallments,
+      firstPaymentDate: loan.firstPaymentDate,
+      disbursementDate: loan.disbursementDate,
+    });
+
+    const activeSchedule = clientStore.schedules[loan.id] || { versionNumber: 1, id: 'sch-1', loanId: loan.id, isActive: true, totalInstallments: remainingInstallments, createdAt: new Date().toISOString() };
+    const newVersion = (activeSchedule.versionNumber || 1) + 1;
+    const newScheduleRecord: LoanSchedule = {
+      id: 'sch-' + Date.now(),
+      loanId: loan.id,
+      versionNumber: newVersion,
+      isActive: true,
+      totalInstallments: remainingInstallments,
+      createdAt: new Date().toISOString(),
+      items: [],
+    };
+    clientStore.schedules[loan.id] = newScheduleRecord;
+    clientStore.scheduleItems[loan.id] = newScheduleGen.items.map(it => ({
+      id: 'schi-' + Date.now() + '-' + it.installmentNumber,
+      scheduleId: newScheduleRecord.id,
+      loanId: loan.id,
+      installmentNumber: it.installmentNumber,
+      dueDate: it.dueDate,
+      openingPrincipal: it.openingPrincipal,
+      principalDue: it.principalDue,
+      interestDue: it.interestDue,
+      feesDue: '0.00',
+      penaltyDue: '0.00',
+      totalEmiAmount: it.totalDue,
+      totalDue: it.totalDue,
+      closingPrincipal: it.closingPrincipal,
+      principalPaid: '0.00',
+      interestPaid: '0.00',
+      penaltyPaid: '0.00',
+      feesPaid: '0.00',
+      totalPaid: '0.00',
+      remainingBalance: it.totalDue,
+      status: 'UPCOMING',
+      daysOverdue: 0,
+      latePenaltyAccrued: '0.00',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }));
+
+    clientStore.saveToStorage();
+    return { loan, schedule: { ...newScheduleRecord, items: clientStore.scheduleItems[loan.id] } } as unknown as T;
+  }
+
+  // Loans: Toggle EMI Status
+  if (endpoint.endsWith('/emi-status') && method === 'PUT') {
+    const loanId = endpoint.split('/')[2];
+    const loan = clientStore.loans.find(l => l.id === loanId) || clientStore.loans[0];
+    (loan as any).emiCollectionStatus = body.emiStatus;
+    (loan as any).emiStatusReason = body.reason || '';
+    if (body.emiStatus === 'CLOSED') {
+      loan.status = 'CLOSED';
+    } else if (body.emiStatus === 'OPEN' && loan.status === 'CLOSED') {
+      loan.status = 'ACTIVE';
+    }
+    loan.updatedAt = new Date().toISOString();
+    clientStore.saveToStorage();
+    return loan as unknown as T;
+  }
+
+  // Loans: Toggle Schedule Item Status
+  if (endpoint.includes('/schedule-items/') && method === 'PUT') {
+    const parts = endpoint.split('/');
+    const loanId = parts[2];
+    const itemId = parts[4];
+    const items = clientStore.scheduleItems[loanId] || [];
+    const item = items.find(it => it.id === itemId);
+    if (item) {
+      item.status = body.status;
+    }
+    clientStore.saveToStorage();
+    return (item || { id: itemId, status: body.status }) as unknown as T;
+  }
+
+  // Loans: Foreclose
+  if (endpoint.endsWith('/foreclose') && method === 'POST') {
+    const loanId = endpoint.split('/')[2];
+    const loan = clientStore.loans.find(l => l.id === loanId) || clientStore.loans[0];
+    loan.status = 'CLOSED';
+    (loan as any).emiCollectionStatus = 'CLOSED';
+    loan.outstandingPrincipal = '0.00';
+    loan.outstandingInterest = '0.00';
+    loan.outstandingPenalty = '0.00';
+    loan.updatedAt = new Date().toISOString();
+
+    const items = clientStore.scheduleItems[loan.id] || [];
+    items.forEach(it => {
+      if (it.status !== 'PAID') {
+        it.status = 'PAID';
+        it.remainingBalance = '0.00';
+      }
+    });
+
+    const newPayment: Payment = {
+      id: 'p-foreclose-' + Date.now(),
+      businessId: clientStore.businessProfile.id,
+      loanId: loan.id,
+      customerId: loan.customerId,
+      customerName: loan.customerName,
+      loanAccountNumber: loan.loanAccountNumber,
+      receiptNumber: 'REC-FORECLOSE-' + (1000 + clientStore.payments.length + 1),
+      paymentAmount: loan.principalAmount,
+      paymentDate: new Date().toISOString().split('T')[0],
+      paymentMethod: body.paymentMethod || 'BANK_TRANSFER',
+      transactionReference: body.transactionReference || 'FORECLOSURE-SETTLEMENT',
+      principalComponent: loan.principalAmount,
+      interestComponent: '0.00',
+      penaltyComponent: '0.00',
+      feesComponent: '0.00',
+      feeComponent: '0.00',
+      collectedByUserId: clientStore.users[0].id,
+      collectedByName: `${clientStore.users[0].firstName} ${clientStore.users[0].lastName}`,
+      isReversal: false,
+      notes: 'Full early loan foreclosure and settlement',
+      createdAt: new Date().toISOString(),
+    };
+    clientStore.payments.unshift(newPayment);
+    clientStore.saveToStorage();
+    return { success: true, loan, payment: newPayment } as unknown as T;
+  }
+
+  // Loans: Restructure
+  if (endpoint.endsWith('/restructure') && method === 'POST') {
+    const loanId = endpoint.split('/')[2];
+    const loan = clientStore.loans.find(l => l.id === loanId) || clientStore.loans[0];
+    const newRate = String(body.newInterestRate || loan.interestRate);
+    const newTenure = Number(body.newRemainingInstallments || loan.tenureValue);
+    const newFirstDate = body.newFirstPaymentDate || loan.firstPaymentDate;
+
+    loan.interestRate = newRate;
+    loan.tenureValue = newTenure;
+    loan.firstPaymentDate = newFirstDate;
+
+    const newScheduleGen = generateAmortizationSchedule({
+      principalAmount: loan.outstandingPrincipal,
+      annualInterestRate: newRate,
+      calculationMethod: loan.interestCalculationMethod,
+      paymentFrequency: loan.paymentFrequency,
+      totalInstallments: newTenure,
+      firstPaymentDate: newFirstDate,
+      disbursementDate: loan.disbursementDate,
+    });
+
+    loan.maturityDate = newScheduleGen.maturityDate;
+    loan.outstandingInterest = newScheduleGen.totalInterestDue;
+    loan.updatedAt = new Date().toISOString();
+
+    const activeSchedule = clientStore.schedules[loan.id] || { versionNumber: 1, id: 'sch-1', loanId: loan.id, isActive: true, totalInstallments: newTenure, createdAt: new Date().toISOString() };
+    const newVersion = (activeSchedule.versionNumber || 1) + 1;
+    const newScheduleRecord: LoanSchedule = {
+      id: 'sch-' + Date.now(),
+      loanId: loan.id,
+      versionNumber: newVersion,
+      isActive: true,
+      totalInstallments: newTenure,
+      createdAt: new Date().toISOString(),
+      items: [],
+    };
+    clientStore.schedules[loan.id] = newScheduleRecord;
+    clientStore.scheduleItems[loan.id] = newScheduleGen.items.map(it => ({
+      id: 'schi-' + Date.now() + '-' + it.installmentNumber,
+      scheduleId: newScheduleRecord.id,
+      loanId: loan.id,
+      installmentNumber: it.installmentNumber,
+      dueDate: it.dueDate,
+      openingPrincipal: it.openingPrincipal,
+      principalDue: it.principalDue,
+      interestDue: it.interestDue,
+      feesDue: '0.00',
+      penaltyDue: '0.00',
+      totalEmiAmount: it.totalDue,
+      totalDue: it.totalDue,
+      closingPrincipal: it.closingPrincipal,
+      principalPaid: '0.00',
+      interestPaid: '0.00',
+      penaltyPaid: '0.00',
+      feesPaid: '0.00',
+      totalPaid: '0.00',
+      remainingBalance: it.totalDue,
+      status: 'UPCOMING',
+      daysOverdue: 0,
+      latePenaltyAccrued: '0.00',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    }));
+
+    clientStore.saveToStorage();
+    return { success: true, loan, schedule: { ...newScheduleRecord, items: clientStore.scheduleItems[loan.id] } } as unknown as T;
   }
 
   // Loans: Create
@@ -236,6 +445,13 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       disbursementDate: body.disbursementDate,
       firstPaymentDate: body.firstPaymentDate,
       maturityDate: scheduleGen.maturityDate || scheduleGen.items[scheduleGen.items.length - 1]?.dueDate || body.firstPaymentDate,
+      processingFee: '0.00',
+      insuranceFee: '0.00',
+      otherCharges: '0.00',
+      gracePeriodDays: 3,
+      latePenaltyType: 'PERCENTAGE',
+      latePenaltyValue: '5.00',
+      prepaymentPenaltyRate: '0.00',
       totalInterestExpected: scheduleGen.totalInterestDue || '0.00',
       totalAmountExpected: scheduleGen.totalRepayable || body.principalAmount,
       installmentAmount: scheduleGen.periodicInstallmentAmount || '0.00',
@@ -243,9 +459,11 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       outstandingPrincipal: body.principalAmount,
       outstandingInterest: scheduleGen.totalInterestDue || '0.00',
       outstandingPenalty: '0.00',
+      outstandingFees: '0.00',
       totalPrincipalPaid: '0.00',
       totalInterestPaid: '0.00',
       totalPenaltyPaid: '0.00',
+      totalFeesPaid: '0.00',
       totalAmountPaid: '0.00',
       paidInstallmentsCount: 0,
       status: 'ACTIVE',
@@ -261,6 +479,7 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       isActive: true,
       totalInstallments: body.tenureValue,
       createdAt: new Date().toISOString(),
+      items: [],
     };
     clientStore.scheduleItems[newLoan.id] = scheduleGen.items.map(it => ({
       id: 'schi-' + Date.now() + '-' + it.installmentNumber,
@@ -271,15 +490,22 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       openingPrincipal: it.openingPrincipal,
       principalDue: it.principalDue,
       interestDue: it.interestDue,
+      feesDue: '0.00',
+      penaltyDue: '0.00',
+      totalEmiAmount: it.totalDue,
       totalDue: it.totalDue,
       closingPrincipal: it.closingPrincipal,
       principalPaid: '0.00',
       interestPaid: '0.00',
       penaltyPaid: '0.00',
+      feesPaid: '0.00',
       totalPaid: '0.00',
-      status: 'PENDING',
+      remainingBalance: it.totalDue,
+      status: 'UPCOMING',
       daysOverdue: 0,
       latePenaltyAccrued: '0.00',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
     }));
 
     clientStore.saveToStorage();
@@ -301,10 +527,12 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
         businessAddress: `${clientStore.businessProfile.addressLine1}, ${clientStore.businessProfile.city}, ${clientStore.businessProfile.state}`,
         businessPhone: clientStore.businessProfile.contactPhone,
         businessEmail: clientStore.businessProfile.contactEmail,
-        customerName: p.customerName,
+        currency: clientStore.businessProfile.currency || 'INR',
+        currencySymbol: clientStore.businessProfile.currencySymbol || '₹',
+        customerName: p.customerName || `${cust.firstName} ${cust.lastName}`,
         customerCode: cust.customerCode,
         customerPhone: cust.phone,
-        loanAccountNumber: p.loanAccountNumber,
+        loanAccountNumber: p.loanAccountNumber || loan.loanAccountNumber,
         paymentDate: p.paymentDate,
         paymentAmount: p.paymentAmount,
         paymentMethod: p.paymentMethod,
@@ -312,7 +540,7 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
         principalPaid: p.principalComponent,
         interestPaid: p.interestComponent,
         penaltyPaid: p.penaltyComponent,
-        feesPaid: p.feeComponent,
+        feesPaid: p.feesComponent || p.feeComponent || '0.00',
         remainingPrincipalBalance: loan.outstandingPrincipal,
         collectedByName: p.collectedByName,
         footerNote: clientStore.businessProfile.receiptFooterNote,
@@ -333,7 +561,7 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
 
     const allocation = calculatePaymentAllocation({
       paymentAmount: body.paymentAmount,
-      unpaidPenalty: pendingItem?.latePenaltyAccrued || '0',
+      unpaidPenalty: (pendingItem as any)?.latePenaltyAccrued || pendingItem?.penaltyDue || '0',
       unpaidFees: '0',
       interestDue: pendingItem?.interestDue || '0',
       principalDue: pendingItem?.principalDue || body.paymentAmount,
@@ -355,6 +583,7 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       principalComponent: allocation.principalAllocated,
       interestComponent: allocation.interestAllocated,
       penaltyComponent: allocation.penaltyAllocated,
+      feesComponent: allocation.feesAllocated,
       feeComponent: allocation.feesAllocated,
       collectedByUserId: clientStore.users[0].id,
       collectedByName: `${clientStore.users[0].firstName} ${clientStore.users[0].lastName}`,
@@ -369,8 +598,8 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
     loan.outstandingPrincipal = new Decimal(loan.outstandingPrincipal).minus(allocation.principalAllocated).toFixed(2);
     loan.totalPrincipalPaid = new Decimal(loan.totalPrincipalPaid).plus(allocation.principalAllocated).toFixed(2);
     loan.totalInterestPaid = new Decimal(loan.totalInterestPaid).plus(allocation.interestAllocated).toFixed(2);
-    loan.totalAmountPaid = new Decimal(loan.totalAmountPaid).plus(body.paymentAmount).toFixed(2);
-    loan.paidInstallmentsCount += 1;
+    loan.totalAmountPaid = new Decimal(loan.totalAmountPaid || '0.00').plus(body.paymentAmount).toFixed(2);
+    loan.paidInstallmentsCount = (loan.paidInstallmentsCount || 0) + 1;
 
     if (pendingItem) {
       pendingItem.status = 'PAID';
@@ -401,11 +630,11 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
   // Overdue Aging Summary
   if (endpoint === '/overdue/aging-summary') {
     const summary: AgingBucketSummary[] = [
-      { bucket: '1_TO_7_DAYS', bucketLabel: '1–7 Days', count: 1, totalPrincipalOverdue: '8500.00', totalInterestOverdue: '1200.00', totalAmountOverdue: '9700.00' },
-      { bucket: '8_TO_30_DAYS', bucketLabel: '8–30 Days', count: 1, totalPrincipalOverdue: '12500.00', totalInterestOverdue: '1800.00', totalAmountOverdue: '14300.00' },
-      { bucket: '31_TO_60_DAYS', bucketLabel: '31–60 Days', count: 0, totalPrincipalOverdue: '0.00', totalInterestOverdue: '0.00', totalAmountOverdue: '0.00' },
-      { bucket: '61_TO_90_DAYS', bucketLabel: '61–90 Days', count: 0, totalPrincipalOverdue: '0.00', totalInterestOverdue: '0.00', totalAmountOverdue: '0.00' },
-      { bucket: 'OVER_90_DAYS', bucketLabel: '90+ Days (NPL)', count: 0, totalPrincipalOverdue: '0.00', totalInterestOverdue: '0.00', totalAmountOverdue: '0.00' },
+      { bucket: '1_TO_7_DAYS', bucketLabel: '1–7 Days', count: 1, totalPrincipalOverdue: '8500.00', totalInterestOverdue: '1200.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '9700.00' },
+      { bucket: '8_TO_30_DAYS', bucketLabel: '8–30 Days', count: 1, totalPrincipalOverdue: '12500.00', totalInterestOverdue: '1800.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '14300.00' },
+      { bucket: '31_TO_60_DAYS', bucketLabel: '31–60 Days', count: 0, totalPrincipalOverdue: '0.00', totalInterestOverdue: '0.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '0.00' },
+      { bucket: '61_TO_90_DAYS', bucketLabel: '61–90 Days', count: 0, totalPrincipalOverdue: '0.00', totalInterestOverdue: '0.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '0.00' },
+      { bucket: '90_PLUS_DAYS', bucketLabel: '90+ Days (NPL)', count: 0, totalPrincipalOverdue: '0.00', totalInterestOverdue: '0.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '0.00' },
     ];
     const overdueLoans: OverdueLoanItem[] = [
       {
@@ -527,6 +756,29 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       data: clientStore.auditLogs,
       meta: { total: clientStore.auditLogs.length, page: 1, limit: 20, totalPages: 1 },
     } as unknown as T;
+  }
+
+  // Notifications
+  if (endpoint.startsWith('/notifications')) {
+    if (endpoint.includes('/read')) {
+      return { success: true } as unknown as T;
+    }
+    return [
+      {
+        id: 'notif-1',
+        title: 'System Operational',
+        message: 'Lendora platform initialized with sample portfolio data and deterministic calculation engine.',
+        status: 'UNREAD',
+        createdAt: new Date().toISOString(),
+      },
+      {
+        id: 'notif-2',
+        title: 'Daily Overdue Check Ready',
+        message: '5 Aging buckets updated and late fee calculation engine is operational.',
+        status: 'READ',
+        createdAt: new Date(Date.now() - 3600000).toISOString(),
+      },
+    ] as unknown as T;
   }
 
   // Settings: Get

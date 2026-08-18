@@ -7,6 +7,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      '@lendora/financial-engine': path.resolve(__dirname, '../../packages/financial-engine/src'),
+      '@lendora/shared-types': path.resolve(__dirname, '../../packages/shared-types/src'),
+      '@lendora/validation': path.resolve(__dirname, '../../packages/validation/src'),
     },
   },
   server: {

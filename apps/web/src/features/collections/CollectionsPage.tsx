@@ -30,15 +30,18 @@ export const CollectionsPage: React.FC = () => {
   const [noteContent, setNoteContent] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
 
-  const { data: tasks = [], isLoading } = useQuery({
+  const { data: tasksData = [], isLoading } = useQuery({
     queryKey: ['collection-tasks', statusFilter],
     queryFn: () => api.getCollectionTasks({ status: statusFilter }),
   });
 
-  const { data: performance = [] } = useQuery({
+  const { data: performanceData = [] } = useQuery({
     queryKey: ['collection-performance'],
     queryFn: api.getAgentPerformance,
   });
+
+  const tasks: CollectionTask[] = Array.isArray(tasksData) ? tasksData : (tasksData?.data || []);
+  const performance: any[] = Array.isArray(performanceData) ? performanceData : (performanceData?.data || []);
 
   const handleUpdateNote = async (e: React.FormEvent) => {
     e.preventDefault();
