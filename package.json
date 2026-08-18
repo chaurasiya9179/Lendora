@@ -1,0 +1,31 @@
+{
+  "name": "lendora",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Lendora - Enterprise Loan Management & Customer CRM Platform",
+  "workspaces": [
+    "packages/*",
+    "apps/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces",
+    "test": "npm run test --workspaces",
+    "dev:api": "npm run dev --workspace=apps/api",
+    "dev:web": "npm run dev --workspace=apps/web",
+    "db:migrate": "npm run db:migrate --workspace=apps/api",
+    "dev": "npx --yes concurrently -k -n \"API,WEB\" -c \"cyan.bold,green.bold\" \"npm run dev:api\" \"npm run dev:web\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "keywords": [
+    "fintech",
+    "loan-management",
+    "crm",
+    "amortization",
+    "emi",
+    "lending"
+  ],
+  "author": "Lendora FinTech Team",
+  "license": "UNLICENSED"
+}
