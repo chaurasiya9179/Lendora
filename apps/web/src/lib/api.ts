@@ -19,7 +19,10 @@ import {
 } from '@lendora/shared-types';
 import Decimal from 'decimal.js';
 
-const API_BASE = '/api';
+const envApiUrl = (import.meta as any).env?.VITE_API_URL;
+const API_BASE = envApiUrl
+  ? `${String(envApiUrl).replace(/\/$/, '')}/api`
+  : '/api';
 
 export class ApiError extends Error {
   constructor(public message: string, public status?: number, public details?: any) {
@@ -45,21 +48,25 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
       headers,
     });
 
-    const data = await response.json().catch(() => ({}));
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = await response.json().catch(() => ({}));
 
-    if (response.ok) {
-      if (data && typeof data === 'object' && 'data' in data && 'meta' in data) {
-        return { data: data.data, meta: data.meta } as unknown as T;
+      if (response.ok) {
+        if (data && typeof data === 'object' && 'data' in data && 'meta' in data) {
+          return { data: data.data, meta: data.meta } as unknown as T;
+        }
+        return (data && typeof data === 'object' && 'data' in data ? data.data : data) as unknown as T;
       }
-      return (data && typeof data === 'object' && 'data' in data ? data.data : data) as unknown as T;
-    }
 
-    if (response.status >= 400 && response.status < 500) {
-      throw new ApiError(data.error || 'Request failed', response.status, data.details);
+      // Explicit authentication / validation errors from a live API backend
+      if ((response.status === 400 || response.status === 401 || response.status === 403 || response.status === 422) && data?.error) {
+        throw new ApiError(data.error || 'Request failed', response.status, data.details);
+      }
     }
   } catch (err: any) {
     if (err instanceof ApiError) throw err;
-    // Network / Offline error -> fallback
+    // Network / 405 / Offline -> fallback to clientStore
   }
 
   // Fallback to in-browser storage
