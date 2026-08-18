@@ -24,7 +24,17 @@ app.use(cors({ origin: config.corsOrigin, credentials: true }));
 app.use(express.json());
 app.use(morgan('dev'));
 
-// API Health Check
+// Root & API Health Check
+app.get('/', (_req, res) => {
+  res.json({
+    status: 'UP',
+    message: 'Welcome to Lendora FinTech REST API',
+    timestamp: new Date().toISOString(),
+    health: '/api/health',
+    version: '1.0.0',
+  });
+});
+
 app.get('/api/health', (_req, res) => {
   res.json({
     status: 'UP',
@@ -73,7 +83,7 @@ function startServer(port: number) {
   return server;
 }
 
-if (process.env.NODE_ENV !== 'test') {
+if (process.env.NODE_ENV !== 'test' && !process.env.VERCEL) {
   startServer(config.port);
 }
 

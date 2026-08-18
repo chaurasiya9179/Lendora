@@ -2,10 +2,11 @@
   "name": "@lendora/api",
   "version": "1.0.0",
   "description": "REST API Backend for Lendora Loan Management & Customer CRM Platform",
-  "main": "./src/server.ts",
+  "main": "./dist/server.js",
   "scripts": {
     "dev": "tsx watch src/server.ts",
     "db:migrate": "tsx src/database/migrate.ts",
+    "prebuild": "npm --prefix ../../packages/shared-types run build && npm --prefix ../../packages/validation run build && npm --prefix ../../packages/financial-engine run build",
     "build": "tsc",
     "start": "node dist/server.js"
   },

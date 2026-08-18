@@ -2,8 +2,8 @@
   "name": "@lendora/financial-engine",
   "version": "1.0.0",
   "description": "Deterministic, arbitrary-precision financial calculation engine for loan amortization, interest, penalties, and payment waterfalls.",
-  "main": "./src/index.ts",
-  "types": "./src/index.ts",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
   "scripts": {
     "build": "tsc",
     "test": "vitest run"
