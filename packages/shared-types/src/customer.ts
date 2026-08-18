@@ -28,6 +28,7 @@ export interface Customer {
   emergencyContactRelation?: string;
   kycStatus: KYCStatus;
   customerStatus: CustomerStatus;
+  status?: CustomerStatus;
   assignedStaffId?: string;
   assignedStaffName?: string;
   notes?: string;

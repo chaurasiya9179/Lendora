@@ -66,6 +66,9 @@ export interface Loan {
   outstandingInterest: string;
   outstandingPenalty: string;
   outstandingFees: string;
+  paidInstallmentsCount?: number;
+  emiCollectionStatus?: string;
+  emiStatusReason?: string;
   status: LoanStatus;
   approvedBy?: string;
   approvedAt?: string;

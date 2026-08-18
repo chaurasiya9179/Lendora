@@ -9,6 +9,9 @@ export type AuditAction =
   | 'LOAN_DISBURSED'
   | 'LOAN_RESTRUCTURED'
   | 'LOAN_FORECLOSED'
+  | 'LOAN_PRINCIPAL_ADJUSTED'
+  | 'LOAN_EMI_STATUS_TOGGLED'
+  | 'INSTALLMENT_STATUS_UPDATED'
   | 'PAYMENT_RECORDED'
   | 'PAYMENT_REVERSED'
   | 'PENALTY_APPLIED'
@@ -21,6 +24,7 @@ export type AuditEntity =
   | 'CUSTOMER'
   | 'LOAN'
   | 'LOAN_SCHEDULE'
+  | 'SCHEDULE_ITEM'
   | 'PAYMENT'
   | 'PENALTY'
   | 'COLLECTION_TASK'
@@ -35,8 +39,8 @@ export interface AuditLogEntry {
   action: AuditAction;
   entity: AuditEntity;
   entityId: string;
-  previousValue?: Record<string, unknown>;
-  newValue?: Record<string, unknown>;
+  previousValue?: Record<string, any> | any;
+  newValue?: Record<string, any> | any;
   ipAddress?: string;
   userAgent?: string;
   createdAt: string;

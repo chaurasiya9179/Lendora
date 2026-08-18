@@ -1,15 +1,13 @@
 import fs from 'fs';
 import path from 'path';
 import pg from 'pg';
-import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 
 dotenv.config();
 
 const { Client } = pg;
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const baseDir = typeof __dirname !== 'undefined' ? __dirname : process.cwd();
 
 async function runMigration() {
   const dbUrl = process.env.DATABASE_URL;
@@ -33,9 +31,15 @@ async function runMigration() {
     console.log('✅ Connected successfully!');
 
     // Read schema.sql from the repository root database/schema.sql
-    const schemaPath = path.resolve(__dirname, '../../../../database/schema.sql');
-    if (!fs.existsSync(schemaPath)) {
-      throw new Error(`schema.sql not found at ${schemaPath}`);
+    const candidatePaths = [
+      path.resolve(baseDir, '../../../../database/schema.sql'),
+      path.resolve(baseDir, '../../../database/schema.sql'),
+      path.resolve(process.cwd(), 'database/schema.sql'),
+      path.resolve(process.cwd(), '../../database/schema.sql'),
+    ];
+    const schemaPath = candidatePaths.find(p => fs.existsSync(p));
+    if (!schemaPath) {
+      throw new Error(`schema.sql not found in candidate paths: ${candidatePaths.join(', ')}`);
     }
 
     console.log(`📖 Reading schema file: ${schemaPath}`);
