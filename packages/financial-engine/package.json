@@ -4,6 +4,13 @@
   "description": "Deterministic, arbitrary-precision financial calculation engine for loan amortization, interest, penalties, and payment waterfalls.",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc",
     "test": "vitest run"
