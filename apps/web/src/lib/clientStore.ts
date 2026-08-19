@@ -70,7 +70,7 @@ class ClientDataStore {
         if (parsed.customers && Array.isArray(parsed.customers) && parsed.customers.length > 0) this.customers = parsed.customers;
         if (parsed.users && Array.isArray(parsed.users) && parsed.users.length > 0) this.users = parsed.users;
         if (parsed.loans && Array.isArray(parsed.loans) && parsed.loans.length > 0) this.loans = parsed.loans;
-        if (parsed.payments && Array.isArray(parsed.payments) && parsed.payments.length > 0) this.payments = parsed.payments;
+        if (parsed.payments && Array.isArray(parsed.payments)) this.payments = parsed.payments;
         if (parsed.schedules && Object.keys(parsed.schedules).length > 0) this.schedules = parsed.schedules;
         if (parsed.scheduleItems && Object.keys(parsed.scheduleItems).length > 0) this.scheduleItems = parsed.scheduleItems;
         if (parsed.customerNotes) this.customerNotes = parsed.customerNotes;

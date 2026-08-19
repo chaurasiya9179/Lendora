@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Receipt, Search, Plus, Eye, RotateCcw, AlertTriangle, Printer } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { StatusBadge } from '../../components/common/StatusBadge.js';
@@ -12,6 +12,7 @@ import { Modal } from '../../components/common/Modal.js';
 import { Payment } from '@lendora/shared-types';
 
 export const PaymentsListPage: React.FC = () => {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [isRecordOpen, setIsRecordOpen] = useState(false);
@@ -44,6 +45,15 @@ export const PaymentsListPage: React.FC = () => {
       await api.reversePayment(reversalPayment.id, reversalReason);
       setReversalPayment(null);
       setReversalReason('');
+      queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-loans'] });
+      queryClient.invalidateQueries({ queryKey: ['loans-list'] });
+      queryClient.invalidateQueries({ queryKey: ['loan-detail'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-detail'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['active-loans-for-payment'] });
       refetch();
     } catch (err: any) {
       alert(err.message || 'Reversal failed');

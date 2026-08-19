@@ -84,6 +84,10 @@ export interface CustomerSummaryProfile extends Customer {
   totalPaidPrincipal: string;
   totalOutstandingPrincipal: string;
   totalOutstandingInterest: string;
+  totalPaidInterest?: string;
+  totalInterestExpected?: string;
+  totalPortfolioAmount?: string;
+  totalAmountPaid?: string;
   totalOverdueAmount: string;
   documents: CustomerDocument[];
   notesList: CustomerNote[];

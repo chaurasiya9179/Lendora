@@ -206,20 +206,32 @@ export class CustomersController {
     const activeLoans = customerLoans.filter(l => ['ACTIVE', 'DISBURSED', 'OVERDUE'].includes(l.status));
 
     let totalBorrowed = new Decimal(0);
-    let totalPaid = new Decimal(0);
+    let totalPaidPrincipal = new Decimal(0);
+    let totalPaidInterest = new Decimal(0);
     let totalOutstandingP = new Decimal(0);
     let totalOutstandingI = new Decimal(0);
+    let totalInterestExpected = new Decimal(0);
     let totalOverdue = new Decimal(0);
 
     for (const loan of customerLoans) {
-      totalBorrowed = totalBorrowed.plus(loan.principalAmount);
-      totalPaid = totalPaid.plus(loan.totalPrincipalPaid);
-      totalOutstandingP = totalOutstandingP.plus(loan.outstandingPrincipal);
-      totalOutstandingI = totalOutstandingI.plus(loan.outstandingInterest);
+      totalBorrowed = totalBorrowed.plus(loan.principalAmount || 0);
+      totalPaidPrincipal = totalPaidPrincipal.plus(loan.totalPrincipalPaid || 0);
+      totalPaidInterest = totalPaidInterest.plus(loan.totalInterestPaid || 0);
+      totalOutstandingP = totalOutstandingP.plus(loan.outstandingPrincipal || 0);
+      totalOutstandingI = totalOutstandingI.plus(loan.outstandingInterest || 0);
+      
+      const expectedI = loan.totalInterestExpected 
+        ? new Decimal(loan.totalInterestExpected)
+        : new Decimal(loan.outstandingInterest || 0).plus(loan.totalInterestPaid || 0);
+      totalInterestExpected = totalInterestExpected.plus(expectedI);
+
       if (loan.status === 'OVERDUE') {
-        totalOverdue = totalOverdue.plus(loan.outstandingPrincipal).plus(loan.outstandingPenalty);
+        totalOverdue = totalOverdue.plus(loan.outstandingPrincipal || 0).plus(loan.outstandingPenalty || 0);
       }
     }
+
+    const totalPortfolioAmount = totalBorrowed.plus(totalInterestExpected);
+    const totalAmountPaid = totalPaidPrincipal.plus(totalPaidInterest);
 
     const documents = Array.from(db.customerDocuments.values()).filter(d => d.customerId === id);
     const notesList = Array.from(db.customerNotes.values())
@@ -231,7 +243,11 @@ export class CustomersController {
       totalLoansCount: customerLoans.length,
       activeLoansCount: activeLoans.length,
       totalBorrowedPrincipal: totalBorrowed.toFixed(2),
-      totalPaidPrincipal: totalPaid.toFixed(2),
+      totalPaidPrincipal: totalPaidPrincipal.toFixed(2),
+      totalPaidInterest: totalPaidInterest.toFixed(2),
+      totalInterestExpected: totalInterestExpected.toFixed(2),
+      totalPortfolioAmount: totalPortfolioAmount.toFixed(2),
+      totalAmountPaid: totalAmountPaid.toFixed(2),
       totalOutstandingPrincipal: totalOutstandingP.toFixed(2),
       totalOutstandingInterest: totalOutstandingI.toFixed(2),
       totalOverdueAmount: totalOverdue.toFixed(2),

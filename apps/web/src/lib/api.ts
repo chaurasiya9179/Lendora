@@ -160,14 +160,27 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       const id = pathPart.split('/').pop()!;
       const customer = clientStore.customers.find(c => c.id === id) || clientStore.customers[0];
       const customerLoans = clientStore.loans.filter(l => l.customerId === customer.id);
+      const totalBorrowed = customerLoans.reduce((acc, l) => acc.plus(l.principalAmount || '0'), new Decimal(0)).toFixed(2);
+      const totalOutstandingP = customerLoans.reduce((acc, l) => acc.plus(l.outstandingPrincipal || '0'), new Decimal(0)).toFixed(2);
+      const totalOutstandingI = customerLoans.reduce((acc, l) => acc.plus(l.outstandingInterest || '0'), new Decimal(0)).toFixed(2);
+      const totalPaidPrincipal = customerLoans.reduce((acc, l) => acc.plus(l.totalPrincipalPaid || '0'), new Decimal(0)).toFixed(2);
+      const totalPaidInterest = customerLoans.reduce((acc, l) => acc.plus(l.totalInterestPaid || '0'), new Decimal(0)).toFixed(2);
+      const totalInterestExpected = customerLoans.reduce((acc, l) => acc.plus(l.totalInterestExpected || (new Decimal(l.outstandingInterest || 0).plus(l.totalInterestPaid || 0))), new Decimal(0)).toFixed(2);
+      const totalPortfolioAmount = new Decimal(totalBorrowed).plus(totalInterestExpected).toFixed(2);
+      const totalAmountPaid = new Decimal(totalPaidPrincipal).plus(totalPaidInterest).toFixed(2);
+
       return {
         ...customer,
         totalLoansCount: customerLoans.length,
         activeLoansCount: customerLoans.filter(l => l.status === 'ACTIVE').length,
-        totalBorrowedPrincipal: customerLoans.reduce((acc, l) => acc.plus(l.principalAmount || '0'), new Decimal(0)).toFixed(2),
-        totalOutstandingPrincipal: customerLoans.reduce((acc, l) => acc.plus(l.outstandingPrincipal || '0'), new Decimal(0)).toFixed(2),
-        totalOutstandingInterest: customerLoans.reduce((acc, l) => acc.plus(l.outstandingInterest || '0'), new Decimal(0)).toFixed(2),
-        totalPaidPrincipal: customerLoans.reduce((acc, l) => acc.plus(l.totalPrincipalPaid || '0'), new Decimal(0)).toFixed(2),
+        totalBorrowedPrincipal: totalBorrowed,
+        totalOutstandingPrincipal: totalOutstandingP,
+        totalOutstandingInterest: totalOutstandingI,
+        totalPaidPrincipal,
+        totalPaidInterest,
+        totalInterestExpected,
+        totalPortfolioAmount,
+        totalAmountPaid,
         totalOverdueAmount: customerLoans.filter(l => l.status === 'OVERDUE').reduce((acc, l) => acc.plus(l.outstandingPrincipal || '0'), new Decimal(0)).toFixed(2),
         loans: customerLoans,
         notes: clientStore.customerNotes[customer.id] || [],
@@ -653,6 +666,17 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       allocationOrder: 'PENALTY_FEES_INTEREST_PRINCIPAL',
     });
 
+    let principalAllocated = new Decimal(allocation.principalAllocated || 0);
+    const interestAllocated = new Decimal(allocation.interestAllocated || 0);
+    const penaltyAllocated = new Decimal(allocation.penaltyAllocated || 0);
+    const feesAllocated = new Decimal(allocation.feesAllocated || 0);
+
+    // If principalDue was 0 (like in INTEREST_ONLY installment) but amount paid is greater than interest, credit remainder to principal!
+    const remainder = new Decimal(body.paymentAmount).minus(interestAllocated).minus(penaltyAllocated).minus(feesAllocated);
+    if (remainder.greaterThan(0)) {
+      principalAllocated = remainder;
+    }
+
     const newPayment: Payment = {
       id: 'p-' + Date.now(),
       businessId: clientStore.businessProfile.id,
@@ -661,15 +685,15 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       customerName: loan.customerName,
       loanAccountNumber: loan.loanAccountNumber,
       receiptNumber: 'REC-2026-' + (1000 + clientStore.payments.length + 1),
-      paymentAmount: body.paymentAmount,
+      paymentAmount: String(body.paymentAmount),
       paymentDate: body.paymentDate,
       paymentMethod: body.paymentMethod,
       transactionReference: body.transactionReference || 'UPI-' + Date.now(),
-      principalComponent: allocation.principalAllocated,
-      interestComponent: allocation.interestAllocated,
-      penaltyComponent: allocation.penaltyAllocated,
-      feesComponent: allocation.feesAllocated,
-      feeComponent: allocation.feesAllocated,
+      principalComponent: principalAllocated.toFixed(2),
+      interestComponent: interestAllocated.toFixed(2),
+      penaltyComponent: penaltyAllocated.toFixed(2),
+      feesComponent: feesAllocated.toFixed(2),
+      feeComponent: feesAllocated.toFixed(2),
       collectedByUserId: clientStore.users[0].id,
       collectedByName: `${clientStore.users[0].firstName} ${clientStore.users[0].lastName}`,
       isReversal: false,
@@ -680,22 +704,32 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
     clientStore.payments.unshift(newPayment);
 
     // Update loan balance
-    loan.outstandingPrincipal = new Decimal(loan.outstandingPrincipal).minus(allocation.principalAllocated).toFixed(2);
-    loan.totalPrincipalPaid = new Decimal(loan.totalPrincipalPaid).plus(allocation.principalAllocated).toFixed(2);
-    loan.totalInterestPaid = new Decimal(loan.totalInterestPaid).plus(allocation.interestAllocated).toFixed(2);
+    loan.outstandingPrincipal = Decimal.max(0, new Decimal(loan.outstandingPrincipal).minus(principalAllocated)).toFixed(2);
+    loan.totalPrincipalPaid = new Decimal(loan.totalPrincipalPaid || '0.00').plus(principalAllocated).toFixed(2);
+    loan.totalInterestPaid = new Decimal(loan.totalInterestPaid || '0.00').plus(interestAllocated).toFixed(2);
+    loan.outstandingInterest = Decimal.max(0, new Decimal(loan.outstandingInterest || '0.00').minus(interestAllocated)).toFixed(2);
     loan.totalAmountPaid = new Decimal(loan.totalAmountPaid || '0.00').plus(body.paymentAmount).toFixed(2);
     loan.paidInstallmentsCount = (loan.paidInstallmentsCount || 0) + 1;
 
+    if (new Decimal(loan.outstandingPrincipal).isZero() && new Decimal(loan.outstandingInterest).isZero()) {
+      loan.status = 'CLOSED';
+      loan.closedAt = new Date().toISOString();
+      loan.closureReason = 'Maturity Repayment Completed';
+    }
+
+    loan.updatedAt = new Date().toISOString();
+
     if (pendingItem) {
       pendingItem.status = 'PAID';
-      pendingItem.principalPaid = allocation.principalAllocated;
-      pendingItem.interestPaid = allocation.interestAllocated;
-      pendingItem.totalPaid = body.paymentAmount;
+      pendingItem.principalPaid = principalAllocated.toFixed(2);
+      pendingItem.interestPaid = interestAllocated.toFixed(2);
+      pendingItem.totalPaid = String(body.paymentAmount);
       pendingItem.paidDate = body.paymentDate;
+      pendingItem.remainingBalance = '0.00';
     }
 
     clientStore.saveToStorage();
-    return { payment: newPayment, allocation } as unknown as T;
+    return { payment: newPayment, allocation: { ...allocation, principalAllocated: principalAllocated.toFixed(2) } } as unknown as T;
   }
 
   // Prepayment Quote & Foreclosure

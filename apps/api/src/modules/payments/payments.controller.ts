@@ -142,7 +142,62 @@ export class PaymentsController {
     const businessId = req.user!.businessId;
     const body = req.body;
 
-    const loan = db.loans.get(body.loanId);
+    let loan = db.loans.get(body.loanId);
+    if (!loan && pgPool) {
+      try {
+        const loanRes = await queryPostgres(`
+          SELECT l.*, c.first_name, c.last_name, c.phone as customer_phone, c.customer_code
+          FROM loans l
+          LEFT JOIN customers c ON l.customer_id = c.id
+          WHERE l.id = $1 AND l.business_id = $2
+        `, [body.loanId, businessId]);
+        if (loanRes.rows.length > 0) {
+          const row = loanRes.rows[0];
+          loan = {
+            id: row.id,
+            businessId: row.business_id,
+            customerId: row.customer_id,
+            customerName: row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.customer_name || 'Borrower',
+            customerPhone: row.customer_phone || row.phone,
+            customerCode: row.customer_code,
+            loanAccountNumber: row.loan_account_number,
+            loanType: row.loan_type,
+            principalAmount: String(row.principal_amount),
+            interestRate: String(row.interest_rate),
+            interestRatePeriod: row.interest_rate_period || 'ANNUAL',
+            interestCalculationMethod: row.interest_calculation_method,
+            tenureValue: Number(row.tenure_value),
+            tenureUnit: row.tenure_unit || 'MONTHS',
+            paymentFrequency: row.payment_frequency,
+            disbursementDate: row.disbursement_date ? new Date(row.disbursement_date).toISOString().split('T')[0] : '',
+            firstPaymentDate: row.first_payment_date ? new Date(row.first_payment_date).toISOString().split('T')[0] : '',
+            maturityDate: row.maturity_date ? new Date(row.maturity_date).toISOString().split('T')[0] : '',
+            processingFee: String(row.processing_fee || '0.00'),
+            insuranceFee: String(row.insurance_fee || '0.00'),
+            otherCharges: String(row.other_charges || '0.00'),
+            gracePeriodDays: row.grace_period_days || 0,
+            latePenaltyType: row.late_penalty_type || 'PERCENTAGE',
+            latePenaltyValue: String(row.late_penalty_value || '0.00'),
+            prepaymentPenaltyRate: String(row.prepayment_penalty_rate || '0.00'),
+            totalPrincipalPaid: String(row.total_principal_paid || '0.00'),
+            totalInterestPaid: String(row.total_interest_paid || '0.00'),
+            totalPenaltyPaid: String(row.total_penalty_paid || '0.00'),
+            totalFeesPaid: String(row.total_fees_paid || '0.00'),
+            outstandingPrincipal: String(row.outstanding_principal),
+            outstandingInterest: String(row.outstanding_interest),
+            outstandingPenalty: String(row.outstanding_penalty || '0.00'),
+            outstandingFees: String(row.outstanding_fees || '0.00'),
+            status: row.status,
+            createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+            updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+          } as any;
+          db.loans.set(loan!.id, loan!);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL loan lookup in record payment:', err);
+      }
+    }
+
     if (!loan || loan.businessId !== businessId) {
       res.status(400).json({ success: false, error: 'Invalid loan' });
       return;
@@ -155,33 +210,47 @@ export class PaymentsController {
 
     // Get active schedule & pending items
     const activeSchedule = Array.from(db.loanSchedules.values()).find(
-      s => s.loanId === loan.id && s.isActive
+      s => s.loanId === loan!.id && s.isActive
     );
 
-    if (!activeSchedule) {
-      res.status(400).json({ success: false, error: 'No active schedule found for this loan' });
-      return;
+    const scheduleItems = activeSchedule 
+      ? Array.from(db.loanScheduleItems.values())
+          .filter(item => item.scheduleId === activeSchedule.id)
+          .sort((a, b) => a.installmentNumber - b.installmentNumber)
+      : [];
+
+    let pendingItems: PendingInstallmentDue[] = [];
+    if (scheduleItems.length > 0) {
+      pendingItems = scheduleItems
+        .filter(item => item.status !== 'PAID')
+        .map(item => ({
+          id: item.id,
+          installmentNumber: item.installmentNumber,
+          dueDate: item.dueDate,
+          principalDue: item.principalDue,
+          principalPaid: item.principalPaid || '0.00',
+          interestDue: item.interestDue,
+          interestPaid: item.interestPaid || '0.00',
+          penaltyDue: item.penaltyDue || '0.00',
+          penaltyPaid: item.penaltyPaid || '0.00',
+          feesDue: item.feesDue || '0.00',
+          feesPaid: item.feesPaid || '0.00',
+        }));
+    } else {
+      pendingItems = [{
+        id: `inst-${loan.id}-1`,
+        installmentNumber: 1,
+        dueDate: loan.firstPaymentDate || loan.disbursementDate || new Date().toISOString().split('T')[0],
+        principalDue: loan.outstandingPrincipal,
+        principalPaid: '0.00',
+        interestDue: loan.outstandingInterest || '0.00',
+        interestPaid: '0.00',
+        penaltyDue: loan.outstandingPenalty || '0.00',
+        penaltyPaid: '0.00',
+        feesDue: '0.00',
+        feesPaid: '0.00',
+      }];
     }
-
-    const scheduleItems = Array.from(db.loanScheduleItems.values())
-      .filter(item => item.scheduleId === activeSchedule.id)
-      .sort((a, b) => a.installmentNumber - b.installmentNumber);
-
-    const pendingItems: PendingInstallmentDue[] = scheduleItems
-      .filter(item => item.status !== 'PAID')
-      .map(item => ({
-        id: item.id,
-        installmentNumber: item.installmentNumber,
-        dueDate: item.dueDate,
-        principalDue: item.principalDue,
-        principalPaid: item.principalPaid || '0.00',
-        interestDue: item.interestDue,
-        interestPaid: item.interestPaid || '0.00',
-        penaltyDue: item.penaltyDue || '0.00',
-        penaltyPaid: item.penaltyPaid || '0.00',
-        feesDue: item.feesDue || '0.00',
-        feesPaid: item.feesPaid || '0.00',
-      }));
 
     // Get business settings for allocation order
     const business = db.businessProfiles.get(businessId);
@@ -193,6 +262,17 @@ export class PaymentsController {
       pendingItems,
       allocationOrder
     );
+
+    let principalAllocated = new Decimal(waterfallResult.principalComponent);
+    const interestAllocated = new Decimal(waterfallResult.interestComponent);
+    const penaltyAllocated = new Decimal(waterfallResult.penaltyComponent);
+    const feesAllocated = new Decimal(waterfallResult.feesComponent);
+
+    // If principalDue was 0 (like in INTEREST_ONLY installment) but amount paid is greater than interest, credit remainder to principal!
+    const remainder = new Decimal(body.paymentAmount).minus(interestAllocated).minus(penaltyAllocated).minus(feesAllocated);
+    if (remainder.greaterThan(0)) {
+      principalAllocated = remainder;
+    }
 
     const count = db.payments.size + 1;
     const receiptNumber = `REC-${new Date().getFullYear()}-${String(count).padStart(6, '0')}`;
@@ -210,10 +290,10 @@ export class PaymentsController {
       paymentAmount: waterfallResult.paymentAmount,
       paymentMethod: body.paymentMethod,
       transactionReference: body.transactionReference,
-      principalComponent: waterfallResult.principalComponent,
-      interestComponent: waterfallResult.interestComponent,
-      penaltyComponent: waterfallResult.penaltyComponent,
-      feesComponent: waterfallResult.feesComponent,
+      principalComponent: principalAllocated.toFixed(2),
+      interestComponent: interestAllocated.toFixed(2),
+      penaltyComponent: penaltyAllocated.toFixed(2),
+      feesComponent: feesAllocated.toFixed(2),
       excessAmount: waterfallResult.excessAmount,
       isReversal: false,
       collectedBy: req.user!.id,
@@ -256,16 +336,16 @@ export class PaymentsController {
       savedAllocations.push(allocationRecord);
     }
 
-    // Update Loan Balances
-    loan.totalPrincipalPaid = new Decimal(loan.totalPrincipalPaid).plus(waterfallResult.principalComponent).toFixed(2);
-    loan.totalInterestPaid = new Decimal(loan.totalInterestPaid).plus(waterfallResult.interestComponent).toFixed(2);
-    loan.totalPenaltyPaid = new Decimal(loan.totalPenaltyPaid).plus(waterfallResult.penaltyComponent).toFixed(2);
-    loan.totalFeesPaid = new Decimal(loan.totalFeesPaid).plus(waterfallResult.feesComponent).toFixed(2);
+    // Update Loan Balances in memory
+    loan.totalPrincipalPaid = new Decimal(loan.totalPrincipalPaid).plus(principalAllocated).toFixed(2);
+    loan.totalInterestPaid = new Decimal(loan.totalInterestPaid).plus(interestAllocated).toFixed(2);
+    loan.totalPenaltyPaid = new Decimal(loan.totalPenaltyPaid).plus(penaltyAllocated).toFixed(2);
+    loan.totalFeesPaid = new Decimal(loan.totalFeesPaid).plus(feesAllocated).toFixed(2);
 
-    loan.outstandingPrincipal = Decimal.max(0, new Decimal(loan.outstandingPrincipal).minus(waterfallResult.principalComponent)).toFixed(2);
-    loan.outstandingInterest = Decimal.max(0, new Decimal(loan.outstandingInterest).minus(waterfallResult.interestComponent)).toFixed(2);
-    loan.outstandingPenalty = Decimal.max(0, new Decimal(loan.outstandingPenalty).minus(waterfallResult.penaltyComponent)).toFixed(2);
-    loan.outstandingFees = Decimal.max(0, new Decimal(loan.outstandingFees).minus(waterfallResult.feesComponent)).toFixed(2);
+    loan.outstandingPrincipal = Decimal.max(0, new Decimal(loan.outstandingPrincipal).minus(principalAllocated)).toFixed(2);
+    loan.outstandingInterest = Decimal.max(0, new Decimal(loan.outstandingInterest).minus(interestAllocated)).toFixed(2);
+    loan.outstandingPenalty = Decimal.max(0, new Decimal(loan.outstandingPenalty).minus(penaltyAllocated)).toFixed(2);
+    loan.outstandingFees = Decimal.max(0, new Decimal(loan.outstandingFees).minus(feesAllocated)).toFixed(2);
 
     // If remaining total balance is 0, auto-close loan
     if (new Decimal(loan.outstandingPrincipal).isZero() && new Decimal(loan.outstandingInterest).isZero()) {
@@ -275,6 +355,51 @@ export class PaymentsController {
     }
 
     loan.updatedAt = new Date().toISOString();
+
+    if (pgPool) {
+      try {
+        await queryPostgres(`
+          INSERT INTO payments (
+            id, business_id, customer_id, loan_id, receipt_number, payment_date,
+            payment_amount, payment_method, transaction_reference, principal_component,
+            interest_component, penalty_component, fees_component, excess_amount,
+            is_reversal, collected_by, notes, created_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+        `, [
+          newPayment.id, businessId, newPayment.customerId, newPayment.loanId,
+          newPayment.receiptNumber, newPayment.paymentDate, newPayment.paymentAmount,
+          newPayment.paymentMethod, newPayment.transactionReference || null,
+          newPayment.principalComponent, newPayment.interestComponent,
+          newPayment.penaltyComponent, newPayment.feesComponent, newPayment.excessAmount || '0.00',
+          newPayment.isReversal, newPayment.collectedBy || null, newPayment.notes || null,
+          newPayment.createdAt
+        ]);
+
+        await queryPostgres(`
+          UPDATE loans
+          SET total_principal_paid = $1,
+              total_interest_paid = $2,
+              total_penalty_paid = $3,
+              total_fees_paid = $4,
+              outstanding_principal = $5,
+              outstanding_interest = $6,
+              outstanding_penalty = $7,
+              outstanding_fees = $8,
+              status = $9,
+              closed_at = $10,
+              closure_reason = $11,
+              updated_at = NOW()
+          WHERE id = $12 AND business_id = $13
+        `, [
+          loan.totalPrincipalPaid, loan.totalInterestPaid, loan.totalPenaltyPaid,
+          loan.totalFeesPaid, loan.outstandingPrincipal, loan.outstandingInterest,
+          loan.outstandingPenalty, loan.outstandingFees, loan.status,
+          loan.closedAt || null, loan.closureReason || null, loan.id, businessId
+        ]);
+      } catch (pgErr) {
+        console.warn('PostgreSQL payment insert / loan update error:', pgErr);
+      }
+    }
 
     db.logAudit({
       businessId,

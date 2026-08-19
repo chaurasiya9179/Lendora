@@ -42,10 +42,13 @@ export class ReportsController {
           status: row.status,
         }));
 
-        const payRes = await queryPostgres('SELECT * FROM payments WHERE business_id = $1 AND is_reversal = false', [businessId]);
+        const payRes = await queryPostgres('SELECT * FROM payments WHERE business_id = $1 AND (is_reversal IS NULL OR is_reversal = false)', [businessId]);
         payments = payRes.rows.map(row => ({
           id: row.id,
           paymentAmount: String(row.payment_amount),
+          principalComponent: String(row.principal_component || '0.00'),
+          interestComponent: String(row.interest_component || '0.00'),
+          penaltyComponent: String(row.penalty_component || '0.00'),
           paymentDate: row.payment_date ? new Date(row.payment_date).toISOString().split('T')[0] : '',
         }));
       } catch (err) {

@@ -18,6 +18,7 @@ import {
   Edit3,
   Trash2,
   Receipt,
+  TrendingUp,
 } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { StatusBadge } from '../../components/common/StatusBadge.js';
@@ -147,6 +148,11 @@ export const CustomerDetailPage: React.FC = () => {
           {/* WhatsApp Khata Statement */}
           <button
             onClick={() => {
+              const expectedInt = customer.totalInterestExpected || customer.totalOutstandingInterest || '0.00';
+              const totalKhata = customer.totalPortfolioAmount || (Number(customer.totalBorrowedPrincipal) + Number(expectedInt)).toFixed(2);
+              const totalPaid = customer.totalAmountPaid || customer.totalPaidPrincipal || '0.00';
+              const totalDue = (Number(customer.totalOutstandingPrincipal) + Number(customer.totalOutstandingInterest)).toFixed(2);
+
               const msg =
 `📋 *KHATA SUMMARY (BAHI-KHATA)*
 
@@ -154,10 +160,12 @@ Namaste *${customer.firstName} ${customer.lastName}* ji,
 
 Aapke khate ka vartaman hisaab:
 📌 *Customer ID:* ${customer.customerCode}
-💰 *Total Borrowed:* ${formatCurrency(customer.totalBorrowedPrincipal)}
-✅ *Total Principal Paid:* ${formatCurrency(customer.totalPaidPrincipal)}
-⚖️ *Current Outstanding Balance:* ${formatCurrency(customer.totalOutstandingPrincipal)}
-${Number(customer.totalOverdueAmount) > 0 ? `⚠️ *Overdue Due Amount:* ${formatCurrency(customer.totalOverdueAmount)}\n` : ''}
+💰 *Total Mool (Principal):* ${formatCurrency(customer.totalBorrowedPrincipal)}
+📈 *Total Byaj (Interest):* ${formatCurrency(expectedInt)}
+💵 *Total Hisaab (Mool + Byaj):* ${formatCurrency(totalKhata)}
+✅ *Total Jama (Paid):* ${formatCurrency(totalPaid)}
+⚖️ *Vartaman Bakiya (Outstanding):* ${formatCurrency(totalDue)}
+${Number(customer.totalOverdueAmount) > 0 ? `⚠️ *Overdue Amount:* ${formatCurrency(customer.totalOverdueAmount)}\n` : ''}
 Kripya kisi bhi jankari ke liye sampark karein.
 Dhanyawad! 🙏`;
               const phone = (customer.phone || '').replace(/[^0-9]/g, '');
@@ -212,28 +220,30 @@ Dhanyawad! 🙏`;
       {/* Customer Financial Overview Cards */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          title="Total Borrowed"
+          title="Total Mool (Principal Disbursed)"
           value={formatCurrency(customer.totalBorrowedPrincipal)}
-          subtitle={`${customer.totalLoansCount} Total Loans (${customer.activeLoansCount} Active)`}
+          subtitle={`Repaid: ${formatCurrency(customer.totalPaidPrincipal || '0.00')} • Out: ${formatCurrency(customer.totalOutstandingPrincipal)}`}
           icon={Banknote}
           accentColor="blue"
         />
         <MetricCard
-          title="Principal Outstanding"
-          value={formatCurrency(customer.totalOutstandingPrincipal)}
-          subtitle={`Interest Due: ${formatCurrency(customer.totalOutstandingInterest)}`}
+          title="Total Byaj (Expected Interest)"
+          value={formatCurrency(customer.totalInterestExpected || customer.totalOutstandingInterest)}
+          subtitle={`Earned: ${formatCurrency(customer.totalPaidInterest || '0.00')} • Due: ${formatCurrency(customer.totalOutstandingInterest)}`}
+          icon={TrendingUp}
+          accentColor="emerald"
+        />
+        <MetricCard
+          title="Total Khata (Mool + Byaj)"
+          value={formatCurrency(customer.totalPortfolioAmount || (Number(customer.totalBorrowedPrincipal) + Number(customer.totalInterestExpected || customer.totalOutstandingInterest)).toFixed(2))}
+          subtitle={`Paid: ${formatCurrency(customer.totalAmountPaid || customer.totalPaidPrincipal)} • Baki: ${formatCurrency((Number(customer.totalOutstandingPrincipal) + Number(customer.totalOutstandingInterest)).toFixed(2))}`}
           icon={CreditCard}
-          accentColor="emerald"
+          accentColor="purple"
         />
         <MetricCard
-          title="Principal Repaid"
-          value={formatCurrency(customer.totalPaidPrincipal)}
-          icon={CheckCircle}
-          accentColor="emerald"
-        />
-        <MetricCard
-          title="Overdue Amount"
-          value={formatCurrency(customer.totalOverdueAmount)}
+          title="Current Outstanding (Kul Bakiya)"
+          value={formatCurrency((Number(customer.totalOutstandingPrincipal) + Number(customer.totalOutstandingInterest)).toFixed(2))}
+          subtitle={`Mool: ${formatCurrency(customer.totalOutstandingPrincipal)} + Byaj: ${formatCurrency(customer.totalOutstandingInterest)}`}
           icon={Clock}
           accentColor="rose"
         />
@@ -285,15 +295,15 @@ Dhanyawad! 🙏`;
           <div className="glass-panel rounded-2xl p-6 border border-slate-800 space-y-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider">Loan Accounts</h3>
-                <span className="text-xs text-slate-400">{loans.length} Loans Total</span>
+                <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider">Sanctioned Loan Accounts</h3>
+                <span className="text-xs text-slate-400">{loans.length} Active / Closed Loans</span>
               </div>
               <button
                 onClick={() => setIsNewLoanModalOpen(true)}
                 className="px-3 py-1.5 bg-brand-600 hover:bg-brand-500 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition shadow-lg shadow-brand-500/20"
               >
                 <Plus className="w-3.5 h-3.5" />
-                <span>+ New Loan</span>
+                <span>+ Issue Loan</span>
               </button>
             </div>
 
@@ -303,57 +313,71 @@ Dhanyawad! 🙏`;
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-900/60 border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-slate-900/60 border-b border-slate-800 text-slate-400 font-semibold uppercase font-sans">
                     <tr>
                       <th className="py-2.5 px-3">Account No</th>
-                      <th className="py-2.5 px-3">Type</th>
-                      <th className="py-2.5 px-3">Principal</th>
-                      <th className="py-2.5 px-3">Outstanding</th>
+                      <th className="py-2.5 px-3">Sanctioned Mool</th>
+                      <th className="py-2.5 px-3">Byaj Rate</th>
+                      <th className="py-2.5 px-3">Kul Byaj</th>
+                      <th className="py-2.5 px-3">Baki Mool</th>
+                      <th className="py-2.5 px-3">Kul Bakiya</th>
                       <th className="py-2.5 px-3">Status</th>
-                      <th className="py-2.5 px-3 text-right">Actions</th>
+                      <th className="py-2.5 px-3 text-right font-sans">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                    {loans.map((loan: any) => (
-                      <tr key={loan.id} className="hover:bg-slate-800/30">
-                        <td className="py-3 px-3 font-mono font-semibold text-brand-400">
-                          {loan.loanAccountNumber}
-                        </td>
-                        <td className="py-3 px-3">{loan.loanType}</td>
-                        <td className="py-3 px-3 font-mono font-semibold text-slate-100">
-                          {formatCurrency(loan.principalAmount)}
-                        </td>
-                        <td className="py-3 px-3 font-mono text-slate-200">
-                          {formatCurrency(loan.outstandingPrincipal)}
-                        </td>
-                        <td className="py-3 px-3">
-                          <StatusBadge status={loan.status} size="sm" />
-                        </td>
-                        <td className="py-3 px-3 text-right">
-                          <div className="flex items-center justify-end space-x-1.5">
-                            {loan.status === 'ACTIVE' && (
-                              <button
-                                onClick={() => {
-                                  setSelectedLoanId(loan.id);
-                                  setIsPaymentModalOpen(true);
-                                }}
-                                className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
+                    {loans.map((loan: any) => {
+                      const expectedInt = loan.totalInterestExpected || (Number(loan.outstandingInterest || 0) + Number(loan.totalInterestPaid || 0)).toFixed(2);
+                      const totalRemaining = (Number(loan.outstandingPrincipal || 0) + Number(loan.outstandingInterest || 0)).toFixed(2);
+                      return (
+                        <tr key={loan.id} className="hover:bg-slate-800/30">
+                          <td className="py-3 px-3 font-semibold text-brand-400">
+                            {loan.loanAccountNumber}
+                          </td>
+                          <td className="py-3 px-3 font-bold text-slate-100">
+                            {formatCurrency(loan.principalAmount)}
+                          </td>
+                          <td className="py-3 px-3 text-slate-300 font-sans">
+                            {loan.interestRate}% <span className="text-[10px] text-slate-500">p.a.</span>
+                          </td>
+                          <td className="py-3 px-3 font-bold text-sky-400">
+                            {formatCurrency(expectedInt)}
+                          </td>
+                          <td className="py-3 px-3 font-bold text-emerald-400">
+                            {formatCurrency(loan.outstandingPrincipal)}
+                          </td>
+                          <td className="py-3 px-3 font-bold text-purple-400">
+                            {formatCurrency(totalRemaining)}
+                          </td>
+                          <td className="py-3 px-3 font-sans">
+                            <StatusBadge status={loan.status} size="sm" />
+                          </td>
+                          <td className="py-3 px-3 text-right font-sans">
+                            <div className="flex items-center justify-end space-x-1.5">
+                              {loan.status === 'ACTIVE' && (
+                                <button
+                                  onClick={() => {
+                                    setSelectedLoanId(loan.id);
+                                    setIsPaymentModalOpen(true);
+                                  }}
+                                  className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
+                                >
+                                  <Receipt className="w-3 h-3" />
+                                  <span>Repay</span>
+                                </button>
+                              )}
+                              <Link
+                                to={`/loans/${loan.id}`}
+                                className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition"
                               >
-                                <Receipt className="w-3 h-3" />
-                                <span>Repay</span>
-                              </button>
-                            )}
-                            <Link
-                              to={`/loans/${loan.id}`}
-                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition"
-                            >
-                              Manage
-                            </Link>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
+                                Manage
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>

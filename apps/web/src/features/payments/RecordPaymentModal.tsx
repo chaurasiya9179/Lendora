@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../../components/common/Modal.js';
 import { api } from '../../lib/api.js';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { PaymentMethod, Loan } from '@lendora/shared-types';
 import { formatCurrency } from '../../utils/formatters.js';
 import { Receipt, CheckCircle, AlertCircle } from 'lucide-react';
@@ -20,6 +20,7 @@ export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
   onSuccess,
   preselectedLoanId,
 }) => {
+  const queryClient = useQueryClient();
   const [loanId, setLoanId] = useState(preselectedLoanId || '');
   const [paymentAmount, setPaymentAmount] = useState('888.49');
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
@@ -64,6 +65,20 @@ export const RecordPaymentModal: React.FC<RecordPaymentModalProps> = ({
         transactionReference: transactionReference || `TXN-${Date.now()}`,
         notes,
       });
+
+      queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-loans'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-customers'] });
+      queryClient.invalidateQueries({ queryKey: ['loans-list'] });
+      queryClient.invalidateQueries({ queryKey: ['loan-detail'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customers-list'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-detail'] });
+      queryClient.invalidateQueries({ queryKey: ['customer-payments'] });
+      queryClient.invalidateQueries({ queryKey: ['payments-list'] });
+      queryClient.invalidateQueries({ queryKey: ['active-loans-for-payment'] });
+      queryClient.invalidateQueries({ queryKey: ['overdue-loans'] });
+      queryClient.invalidateQueries({ queryKey: ['portfolio-aging'] });
 
       onSuccess();
       setCompletedPaymentId(res.payment.id);
