@@ -28,7 +28,8 @@ export type CalculationMethod =
   | 'SIMPLE_INTEREST'
   | 'COMPOUND_INTEREST'
   | 'FLAT_RATE'
-  | 'REDUCING_BALANCE';
+  | 'REDUCING_BALANCE'
+  | 'INTEREST_ONLY';
 
 export type LatePenaltyType = 'FIXED' | 'PERCENTAGE' | 'DAILY_PERCENTAGE';
 

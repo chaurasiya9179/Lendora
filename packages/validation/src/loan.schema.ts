@@ -6,7 +6,7 @@ export const LoanCreationSchema = z.object({
   principalAmount: z.string().or(z.number()).transform(v => String(v)).refine(v => Number(v) > 0, 'Principal must be greater than 0'),
   interestRate: z.string().or(z.number()).transform(v => String(v)).refine(v => Number(v) >= 0, 'Interest rate cannot be negative'),
   interestRatePeriod: z.enum(['ANNUAL', 'MONTHLY', 'DAILY']).default('ANNUAL'),
-  interestCalculationMethod: z.enum(['EMI_REDUCING', 'SIMPLE_INTEREST', 'COMPOUND_INTEREST', 'FLAT_RATE', 'REDUCING_BALANCE']),
+  interestCalculationMethod: z.enum(['EMI_REDUCING', 'SIMPLE_INTEREST', 'COMPOUND_INTEREST', 'FLAT_RATE', 'REDUCING_BALANCE', 'INTEREST_ONLY']),
   tenureValue: z.number().int().min(1, 'Tenure must be at least 1'),
   tenureUnit: z.enum(['DAYS', 'WEEKS', 'MONTHS', 'YEARS']).default('MONTHS'),
   paymentFrequency: z.enum(['DAILY', 'WEEKLY', 'BI_WEEKLY', 'MONTHLY', 'QUARTERLY', 'LUMP_SUM']).default('MONTHLY'),
@@ -25,7 +25,7 @@ export const LoanCreationSchema = z.object({
 export const LoanPreviewSchema = z.object({
   principalAmount: z.string().or(z.number()).transform(v => String(v)),
   interestRate: z.string().or(z.number()).transform(v => String(v)),
-  interestCalculationMethod: z.enum(['EMI_REDUCING', 'SIMPLE_INTEREST', 'COMPOUND_INTEREST', 'FLAT_RATE', 'REDUCING_BALANCE']),
+  interestCalculationMethod: z.enum(['EMI_REDUCING', 'SIMPLE_INTEREST', 'COMPOUND_INTEREST', 'FLAT_RATE', 'REDUCING_BALANCE', 'INTEREST_ONLY']),
   tenureValue: z.number().int().min(1),
   tenureUnit: z.enum(['DAYS', 'WEEKS', 'MONTHS', 'YEARS']).default('MONTHS'),
   paymentFrequency: z.enum(['DAILY', 'WEEKLY', 'BI_WEEKLY', 'MONTHLY', 'QUARTERLY', 'LUMP_SUM']).default('MONTHLY'),
@@ -36,7 +36,7 @@ export const LoanPreviewSchema = z.object({
 export const LoanRestructureSchema = z.object({
   loanId: z.string().min(1, 'Loan ID is required'),
   newInterestRate: z.string().or(z.number()).transform(v => String(v)),
-  newCalculationMethod: z.enum(['EMI_REDUCING', 'SIMPLE_INTEREST', 'COMPOUND_INTEREST', 'FLAT_RATE', 'REDUCING_BALANCE']),
+  newCalculationMethod: z.enum(['EMI_REDUCING', 'SIMPLE_INTEREST', 'COMPOUND_INTEREST', 'FLAT_RATE', 'REDUCING_BALANCE', 'INTEREST_ONLY']),
   newPaymentFrequency: z.enum(['DAILY', 'WEEKLY', 'BI_WEEKLY', 'MONTHLY', 'QUARTERLY', 'LUMP_SUM']).default('MONTHLY'),
   newRemainingInstallments: z.number().int().min(1, 'Must have at least 1 installment'),
   newFirstPaymentDate: z.string().min(1, 'New first payment date is required'),

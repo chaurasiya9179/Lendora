@@ -43,18 +43,17 @@ export const DashboardLayout: React.FC = () => {
   const unreadCount = notifsList.filter((n: any) => n && n.status !== 'READ').length;
 
   const navLinks = [
-    { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, roles: ['ADMIN', 'MANAGER', 'COLLECTION_AGENT', 'ACCOUNTANT'] },
-    { label: 'Customers CRM', path: '/customers', icon: Users, roles: ['ADMIN', 'MANAGER', 'COLLECTION_AGENT'] },
-    { label: 'Loan Portfolio', path: '/loans', icon: Banknote, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT'] },
-    { label: 'Payment Ledger', path: '/payments', icon: Receipt, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT', 'COLLECTION_AGENT'] },
-    { label: 'Collections', path: '/collections', icon: CalendarCheck, roles: ['ADMIN', 'MANAGER', 'COLLECTION_AGENT'] },
-    { label: 'Overdue & Aging', path: '/overdue', icon: AlertTriangle, roles: ['ADMIN', 'MANAGER', 'COLLECTION_AGENT', 'ACCOUNTANT'] },
-    { label: 'Reports', path: '/reports', icon: BarChart3, roles: ['ADMIN', 'MANAGER', 'ACCOUNTANT'] },
-    { label: 'Audit Trail', path: '/audit-logs', icon: ShieldCheck, roles: ['ADMIN'] },
-    { label: 'Settings', path: '/settings', icon: Settings, roles: ['ADMIN'] },
+    { label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
+    { label: 'Borrowers / Grahak', path: '/customers', icon: Users },
+    { label: 'Loan Portfolio', path: '/loans', icon: Banknote },
+    { label: 'Payment Ledger', path: '/payments', icon: Receipt },
+    { label: 'Due Today & Vasooli', path: '/collections', icon: CalendarCheck },
+    { label: 'Overdue & Bakiya', path: '/overdue', icon: AlertTriangle },
+    { label: 'Reports & Hisaab', path: '/reports', icon: BarChart3 },
+    { label: 'Settings', path: '/settings', icon: Settings },
   ];
 
-  const filteredNavLinks = navLinks.filter(link => hasRole(link.roles as any));
+  const filteredNavLinks = navLinks;
 
   const handleGlobalSearch = (e: React.FormEvent) => {
     e.preventDefault();

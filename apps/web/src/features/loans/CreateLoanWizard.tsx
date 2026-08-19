@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Modal } from '../../components/common/Modal.js';
 import { api } from '../../lib/api.js';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   LoanType,
   CalculationMethod,
@@ -25,13 +25,14 @@ export const CreateLoanWizard: React.FC<CreateLoanWizardProps> = ({
   onSuccess,
   preselectedCustomerId,
 }) => {
+  const queryClient = useQueryClient();
   const [customerId, setCustomerId] = useState(preselectedCustomerId || '');
   const [loanType, setLoanType] = useState<LoanType>('PERSONAL');
-  const [principalAmount, setPrincipalAmount] = useState('10000');
-  const [interestRate, setInterestRate] = useState('12.0');
+  const [principalAmount, setPrincipalAmount] = useState('50000');
+  const [interestRate, setInterestRate] = useState('24.0');
   const [interestRatePeriod, setInterestRatePeriod] = useState<'ANNUAL' | 'MONTHLY' | 'DAILY'>('ANNUAL');
-  const [calculationMethod, setCalculationMethod] = useState<CalculationMethod>('EMI_REDUCING');
-  const [tenureValue, setTenureValue] = useState(12);
+  const [calculationMethod, setCalculationMethod] = useState<CalculationMethod>('INTEREST_ONLY');
+  const [tenureValue, setTenureValue] = useState(6);
   const [tenureUnit, setTenureUnit] = useState<TenureUnit>('MONTHS');
   const [paymentFrequency, setPaymentFrequency] = useState<PaymentFrequency>('MONTHLY');
   const [disbursementDate, setDisbursementDate] = useState(new Date().toISOString().split('T')[0]);
@@ -40,8 +41,8 @@ export const CreateLoanWizard: React.FC<CreateLoanWizardProps> = ({
     d.setMonth(d.getMonth() + 1);
     return d.toISOString().split('T')[0];
   });
-  const [processingFee, setProcessingFee] = useState('100');
-  const [insuranceFee, setInsuranceFee] = useState('50');
+  const [processingFee, setProcessingFee] = useState('0');
+  const [insuranceFee, setInsuranceFee] = useState('0');
   const [gracePeriodDays, setGracePeriodDays] = useState(3);
   const [latePenaltyValue, setLatePenaltyValue] = useState('5.0');
   const [prepaymentPenaltyRate, setPrepaymentPenaltyRate] = useState('0.0');
@@ -61,6 +62,7 @@ export const CreateLoanWizard: React.FC<CreateLoanWizardProps> = ({
   const customers: Customer[] = Array.isArray(customersData)
     ? customersData
     : (customersData?.data || []);
+
   useEffect(() => {
     if (preselectedCustomerId) {
       setCustomerId(preselectedCustomerId);
@@ -68,6 +70,12 @@ export const CreateLoanWizard: React.FC<CreateLoanWizardProps> = ({
       setCustomerId(customers[0].id);
     }
   }, [preselectedCustomerId, customers, customerId]);
+
+  useEffect(() => {
+    if (isOpen) {
+      setError(null);
+    }
+  }, [isOpen]);
 
   // Live Amortization Calculator Preview
   useEffect(() => {
@@ -118,8 +126,13 @@ export const CreateLoanWizard: React.FC<CreateLoanWizardProps> = ({
     setIsSubmitting(true);
 
     try {
+      const targetCustomerId = customerId || preselectedCustomerId || (customers.length > 0 ? customers[0].id : '');
+      if (!targetCustomerId) {
+        throw new Error('Please select a valid customer / borrower first');
+      }
+
       await api.createLoan({
-        customerId,
+        customerId: targetCustomerId,
         loanType,
         principalAmount,
         interestRate,
@@ -139,6 +152,13 @@ export const CreateLoanWizard: React.FC<CreateLoanWizardProps> = ({
         prepaymentPenaltyRate,
         notes,
       });
+
+      queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-customers'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-loans'] });
+      queryClient.invalidateQueries({ queryKey: ['loans-list'] });
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customers-list'] });
 
       onSuccess();
       onClose();
@@ -226,15 +246,24 @@ export const CreateLoanWizard: React.FC<CreateLoanWizardProps> = ({
             {/* Interest & Method */}
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Interest Rate (% p.a.) *</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  required
-                  value={interestRate}
-                  onChange={e => setInterestRate(e.target.value)}
-                  className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-brand-500 font-mono"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="block text-slate-400 font-semibold">Interest Rate *</label>
+                  <span className="text-[10px] text-brand-400 font-mono">
+                    {Number(interestRate) > 0 ? `(${(Number(interestRate) / 12).toFixed(2)}% / mo • ₹${(Number(interestRate) / 12).toFixed(1)} saikda)` : ''}
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={interestRate}
+                    onChange={e => setInterestRate(e.target.value)}
+                    placeholder="e.g. 24 for 2% monthly"
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-brand-500 font-mono"
+                  />
+                  <span className="absolute right-3 top-2 text-slate-500 text-xs font-semibold">% p.a.</span>
+                </div>
               </div>
 
               <div>
@@ -244,14 +273,24 @@ export const CreateLoanWizard: React.FC<CreateLoanWizardProps> = ({
                   onChange={e => setCalculationMethod(e.target.value as CalculationMethod)}
                   className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-brand-500 font-medium"
                 >
-                  <option value="EMI_REDUCING">Reducing Balance (EMI)</option>
-                  <option value="FLAT_RATE">Flat Rate</option>
+                  <option value="INTEREST_ONLY">✨ Sirf Byaj Har Mahine + Mool Aakhri me (Interest Only)</option>
+                  <option value="EMI_REDUCING">Reducing Balance (Standard EMI)</option>
                   <option value="SIMPLE_INTEREST">Simple Interest</option>
+                  <option value="FLAT_RATE">Flat Rate</option>
                   <option value="COMPOUND_INTEREST">Compound Interest</option>
-                  <option value="REDUCING_BALANCE">Standard Reducing</option>
                 </select>
               </div>
             </div>
+
+            {calculationMethod === 'INTEREST_ONLY' && (
+              <div className="p-3 bg-brand-500/10 border border-brand-500/20 rounded-xl text-[11px] text-brand-300">
+                <span className="font-bold">💡 Byaj Mode (Interest-Only):</span> Har mahine sirf byaj aayega{' '}
+                <strong className="text-white">
+                  ({formatCurrency(Number(principalAmount || 0) * (Number(interestRate || 0) / 1200))}/mahina)
+                </strong>
+                . Poora mool (Principal: <strong className="text-white">{formatCurrency(principalAmount || 0)}</strong>) aakhiri installment par wapas aayega.
+              </div>
+            )}
 
             {/* Tenure & Frequency */}
             <div className="grid grid-cols-2 gap-3">

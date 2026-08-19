@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { db } from '../../database/db.js';
+import { pgPool, queryPostgres } from '../../database/postgres.js';
 import { AuthenticatedRequest } from '../../common/middleware/auth.middleware.js';
 import { CreateCollectionTaskInput, UpdateCollectionNoteInput } from '@lendora/validation';
 import { CollectionTask, CollectionAgentPerformance } from '@lendora/shared-types';
@@ -10,27 +11,96 @@ export class CollectionsController {
     const businessId = req.user!.businessId;
     const { status, agentId, priority, date } = req.query;
 
-    let tasks = Array.from(db.collectionTasks.values())
-      .filter(t => t.businessId === businessId)
-      .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
+    let tasks: CollectionTask[] = [];
 
-    if (req.user!.role === 'COLLECTION_AGENT') {
-      // Agents see their assigned tasks
-      tasks = tasks.filter(t => t.assignedAgentId === req.user!.id);
-    } else if (agentId && typeof agentId === 'string') {
-      tasks = tasks.filter(t => t.assignedAgentId === agentId);
+    if (pgPool) {
+      try {
+        let query = `
+          SELECT ct.*, c.first_name, c.last_name, c.phone as customer_phone, l.loan_account_number,
+                 u.first_name as agent_first_name, u.last_name as agent_last_name
+          FROM collection_tasks ct
+          LEFT JOIN customers c ON ct.customer_id = c.id
+          LEFT JOIN loans l ON ct.loan_id = l.id
+          LEFT JOIN users u ON ct.assigned_agent_id = u.id
+          WHERE ct.business_id = $1
+        `;
+        const params: any[] = [businessId];
+
+        if (req.user!.role === 'COLLECTION_AGENT') {
+          params.push(req.user!.id);
+          query += ` AND ct.assigned_agent_id = $${params.length}`;
+        } else if (agentId && typeof agentId === 'string') {
+          params.push(agentId);
+          query += ` AND ct.assigned_agent_id = $${params.length}`;
+        }
+
+        if (status && typeof status === 'string') {
+          params.push(status);
+          query += ` AND ct.status = $${params.length}`;
+        }
+
+        if (priority && typeof priority === 'string') {
+          params.push(priority);
+          query += ` AND ct.priority = $${params.length}`;
+        }
+
+        if (date && typeof date === 'string') {
+          params.push(date);
+          query += ` AND ct.due_date = $${params.length}`;
+        }
+
+        query += ' ORDER BY ct.due_date ASC';
+
+        const result = await queryPostgres(query, params);
+        tasks = result.rows.map((row: any) => ({
+          id: row.id,
+          businessId: row.business_id,
+          customerId: row.customer_id,
+          customerName: row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.customer_name || 'N/A',
+          customerPhone: row.customer_phone || row.phone,
+          loanId: row.loan_id,
+          loanAccountNumber: row.loan_account_number,
+          scheduleItemId: row.schedule_item_id,
+          assignedAgentId: row.assigned_agent_id,
+          assignedAgentName: row.agent_first_name ? `${row.agent_first_name} ${row.agent_last_name}` : undefined,
+          priority: row.priority,
+          status: row.status,
+          contactResult: row.contact_result,
+          promiseToPayDate: row.promise_to_pay_date ? new Date(row.promise_to_pay_date).toISOString().split('T')[0] : undefined,
+          promiseAmount: row.promise_amount ? String(row.promise_amount) : undefined,
+          notes: row.notes,
+          dueDate: row.due_date ? new Date(row.due_date).toISOString().split('T')[0] : '',
+          overdueAmount: String(row.overdue_amount || '0.00'),
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        }));
+      } catch (err) {
+        console.warn('PostgreSQL collection tasks query fallback:', err);
+      }
     }
 
-    if (status && typeof status === 'string') {
-      tasks = tasks.filter(t => t.status === status);
-    }
+    if (tasks.length === 0 && !pgPool) {
+      tasks = Array.from(db.collectionTasks.values())
+        .filter(t => t.businessId === businessId)
+        .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime());
 
-    if (priority && typeof priority === 'string') {
-      tasks = tasks.filter(t => t.priority === priority);
-    }
+      if (req.user!.role === 'COLLECTION_AGENT') {
+        tasks = tasks.filter(t => t.assignedAgentId === req.user!.id);
+      } else if (agentId && typeof agentId === 'string') {
+        tasks = tasks.filter(t => t.assignedAgentId === agentId);
+      }
 
-    if (date && typeof date === 'string') {
-      tasks = tasks.filter(t => t.dueDate === date);
+      if (status && typeof status === 'string') {
+        tasks = tasks.filter(t => t.status === status);
+      }
+
+      if (priority && typeof priority === 'string') {
+        tasks = tasks.filter(t => t.priority === priority);
+      }
+
+      if (date && typeof date === 'string') {
+        tasks = tasks.filter(t => t.dueDate === date);
+      }
     }
 
     res.json({

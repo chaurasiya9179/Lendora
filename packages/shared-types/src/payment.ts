@@ -26,6 +26,7 @@ export interface Payment {
   businessId: string;
   customerId: string;
   customerName?: string;
+  customerPhone?: string;
   loanId: string;
   loanAccountNumber?: string;
   receiptNumber: string;

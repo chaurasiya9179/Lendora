@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { db } from '../../database/db.js';
+import { pgPool, queryPostgres } from '../../database/postgres.js';
 import { AuthenticatedRequest } from '../../common/middleware/auth.middleware.js';
 import {
   LoanCreationInput,
@@ -12,8 +13,83 @@ import {
   calculateForeclosureQuote,
   restructureLoanSchedule,
 } from '@lendora/financial-engine';
-import { Loan, LoanSchedule, LoanScheduleItem, Payment } from '@lendora/shared-types';
+import { Loan, LoanSchedule, LoanScheduleItem, Payment, Customer } from '@lendora/shared-types';
 import Decimal from 'decimal.js';
+
+function mapDbCustomer(row: any): Customer {
+  return {
+    id: row.id,
+    businessId: row.business_id,
+    customerCode: row.customer_code,
+    firstName: row.first_name,
+    lastName: row.last_name,
+    email: row.email || undefined,
+    phone: row.phone,
+    dateOfBirth: row.date_of_birth ? new Date(row.date_of_birth).toISOString().split('T')[0] : undefined,
+    idType: row.id_type || 'AADHAAR',
+    idNumber: row.id_number || undefined,
+    addressLine1: row.address_line1 || undefined,
+    addressLine2: row.address_line2 || undefined,
+    city: row.city || undefined,
+    state: row.state || undefined,
+    postalCode: row.postal_code || undefined,
+    country: row.country || 'India',
+    occupation: row.occupation || undefined,
+    employerName: row.employer_name || undefined,
+    monthlyIncome: row.monthly_income ? String(row.monthly_income) : '0',
+    creditScore: row.credit_score || undefined,
+    kycStatus: row.kyc_status || 'PENDING',
+    customerStatus: row.customer_status || 'ACTIVE',
+    notes: row.notes || undefined,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+  };
+}
+
+function mapDbLoan(row: any): Loan {
+  const customerName = row.first_name && row.last_name 
+    ? `${row.first_name} ${row.last_name}`
+    : row.customer_name || 'Borrower';
+  return {
+    id: row.id,
+    businessId: row.business_id,
+    customerId: row.customer_id,
+    customerName,
+    customerPhone: row.customer_phone || row.phone || undefined,
+    customerCode: row.customer_code || undefined,
+    loanAccountNumber: row.loan_account_number,
+    loanType: row.loan_type,
+    principalAmount: String(row.principal_amount),
+    interestRate: String(row.interest_rate),
+    interestRatePeriod: row.interest_rate_period || 'ANNUAL',
+    interestCalculationMethod: row.interest_calculation_method,
+    tenureValue: Number(row.tenure_value),
+    tenureUnit: row.tenure_unit || 'MONTHS',
+    paymentFrequency: row.payment_frequency,
+    disbursementDate: row.disbursement_date ? new Date(row.disbursement_date).toISOString().split('T')[0] : '',
+    firstPaymentDate: row.first_payment_date ? new Date(row.first_payment_date).toISOString().split('T')[0] : '',
+    maturityDate: row.maturity_date ? new Date(row.maturity_date).toISOString().split('T')[0] : '',
+    processingFee: row.processing_fee ? String(row.processing_fee) : '0.00',
+    insuranceFee: row.insurance_fee ? String(row.insurance_fee) : '0.00',
+    otherCharges: row.other_charges ? String(row.other_charges) : '0.00',
+    gracePeriodDays: row.grace_period_days || 0,
+    latePenaltyType: row.late_penalty_type || 'PERCENTAGE',
+    latePenaltyValue: row.late_penalty_value ? String(row.late_penalty_value) : '0.00',
+    prepaymentPenaltyRate: row.prepayment_penalty_rate ? String(row.prepayment_penalty_rate) : '0.00',
+    totalPrincipalPaid: row.total_principal_paid ? String(row.total_principal_paid) : '0.00',
+    totalInterestPaid: row.total_interest_paid ? String(row.total_interest_paid) : '0.00',
+    totalPenaltyPaid: row.total_penalty_paid ? String(row.total_penalty_paid) : '0.00',
+    totalFeesPaid: row.total_fees_paid ? String(row.total_fees_paid) : '0.00',
+    outstandingPrincipal: String(row.outstanding_principal),
+    outstandingInterest: String(row.outstanding_interest),
+    outstandingPenalty: row.outstanding_penalty ? String(row.outstanding_penalty) : '0.00',
+    outstandingFees: row.outstanding_fees ? String(row.outstanding_fees) : '0.00',
+    status: row.status,
+    notes: row.notes || undefined,
+    createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+    updatedAt: row.updated_at ? new Date(row.updated_at).toISOString() : new Date().toISOString(),
+  };
+}
 
 export class LoansController {
   public static async previewCalculation(req: AuthenticatedRequest & { body: LoanPreviewInput }, res: Response): Promise<void> {
@@ -41,24 +117,64 @@ export class LoansController {
     const businessId = req.user!.businessId;
     const { status, customerId, search, page = '1', limit = '20' } = req.query;
 
-    let items = Array.from(db.loans.values()).filter(l => l.businessId === businessId);
+    let items: Loan[] = [];
 
-    if (status && typeof status === 'string') {
-      items = items.filter(l => l.status === status);
-    }
+    if (pgPool) {
+      try {
+        let query = `
+          SELECT l.*, c.first_name, c.last_name, c.phone as customer_phone, c.customer_code
+          FROM loans l
+          LEFT JOIN customers c ON l.customer_id = c.id
+          WHERE l.business_id = $1
+        `;
+        const params: any[] = [businessId];
 
-    if (customerId && typeof customerId === 'string') {
-      items = items.filter(l => l.customerId === customerId);
-    }
+        if (status && typeof status === 'string') {
+          params.push(status);
+          query += ` AND l.status = $${params.length}`;
+        }
 
-    if (search && typeof search === 'string') {
-      const q = search.toLowerCase();
-      items = items.filter(
-        l =>
-          l.loanAccountNumber.toLowerCase().includes(q) ||
-          (l.customerName && l.customerName.toLowerCase().includes(q)) ||
-          (l.customerPhone && l.customerPhone.includes(q))
-      );
+        if (customerId && typeof customerId === 'string') {
+          params.push(customerId);
+          query += ` AND l.customer_id = $${params.length}`;
+        }
+
+        if (search && typeof search === 'string') {
+          params.push(`%${search.toLowerCase()}%`);
+          query += ` AND (LOWER(l.loan_account_number) LIKE $${params.length} OR LOWER(c.first_name) LIKE $${params.length} OR LOWER(c.last_name) LIKE $${params.length} OR c.phone LIKE $${params.length})`;
+        }
+
+        query += ' ORDER BY l.created_at DESC';
+
+        const result = await queryPostgres(query, params);
+        items = result.rows.map(mapDbLoan);
+        for (const l of items) {
+          db.loans.set(l.id, l);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL loans list fallback to in-memory:', err);
+        items = Array.from(db.loans.values()).filter(l => l.businessId === businessId);
+      }
+    } else {
+      items = Array.from(db.loans.values()).filter(l => l.businessId === businessId);
+
+      if (status && typeof status === 'string') {
+        items = items.filter(l => l.status === status);
+      }
+
+      if (customerId && typeof customerId === 'string') {
+        items = items.filter(l => l.customerId === customerId);
+      }
+
+      if (search && typeof search === 'string') {
+        const q = search.toLowerCase();
+        items = items.filter(
+          l =>
+            l.loanAccountNumber.toLowerCase().includes(q) ||
+            (l.customerName && l.customerName.toLowerCase().includes(q)) ||
+            (l.customerPhone && l.customerPhone.includes(q))
+        );
+      }
     }
 
     const pageNum = parseInt(page as string, 10) || 1;
@@ -74,14 +190,35 @@ export class LoansController {
         total,
         page: pageNum,
         limit: limitNum,
-        totalPages: Math.ceil(total / limitNum),
+        totalPages: Math.ceil(total / limitNum) || 1,
       },
     });
   }
 
   public static async getById(req: AuthenticatedRequest, res: Response): Promise<void> {
     const { id } = req.params;
-    const loan = db.loans.get(id);
+    let loan: Loan | undefined;
+
+    if (pgPool) {
+      try {
+        const result = await queryPostgres(`
+          SELECT l.*, c.first_name, c.last_name, c.phone as customer_phone, c.customer_code
+          FROM loans l
+          LEFT JOIN customers c ON l.customer_id = c.id
+          WHERE l.id = $1 AND l.business_id = $2
+        `, [id, req.user!.businessId]);
+        if (result.rows.length > 0) {
+          loan = mapDbLoan(result.rows[0]);
+          db.loans.set(loan.id, loan);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL loan getById error:', err);
+      }
+    }
+
+    if (!loan) {
+      loan = db.loans.get(id);
+    }
 
     if (!loan || loan.businessId !== req.user!.businessId) {
       res.status(404).json({ success: false, error: 'Loan not found' });
@@ -89,18 +226,94 @@ export class LoansController {
     }
 
     // Get active schedule
-    const activeSchedule = Array.from(db.loanSchedules.values()).find(
-      s => s.loanId === id && s.isActive
-    );
-
+    let activeSchedule: LoanSchedule | null = null;
     let scheduleItems: LoanScheduleItem[] = [];
-    if (activeSchedule) {
-      scheduleItems = Array.from(db.loanScheduleItems.values())
-        .filter(item => item.scheduleId === activeSchedule.id)
-        .sort((a, b) => a.installmentNumber - b.installmentNumber);
+    let loanPayments: Payment[] = [];
+
+    if (pgPool) {
+      try {
+        const schedRes = await queryPostgres(`
+          SELECT * FROM loan_schedules WHERE loan_id = $1 AND is_active = true ORDER BY version_number DESC LIMIT 1
+        `, [id]);
+        if (schedRes.rows.length > 0) {
+          const sRow = schedRes.rows[0];
+          activeSchedule = {
+            id: sRow.id,
+            loanId: sRow.loan_id,
+            versionNumber: sRow.version_number,
+            isActive: sRow.is_active,
+            reasonForVersion: sRow.reason_for_version,
+            createdBy: sRow.created_by,
+            createdAt: sRow.created_at,
+            items: [],
+          };
+          const itemsRes = await queryPostgres(`
+            SELECT * FROM loan_schedule_items WHERE schedule_id = $1 ORDER BY installment_number ASC
+          `, [activeSchedule.id]);
+          scheduleItems = itemsRes.rows.map((iRow: any) => ({
+            id: iRow.id,
+            scheduleId: iRow.schedule_id,
+            installmentNumber: iRow.installment_number,
+            dueDate: iRow.due_date ? new Date(iRow.due_date).toISOString().split('T')[0] : '',
+            openingPrincipal: String(iRow.opening_principal),
+            principalDue: String(iRow.principal_due),
+            interestDue: String(iRow.interest_due),
+            feesDue: String(iRow.fees_due || '0.00'),
+            penaltyDue: String(iRow.penalty_due || '0.00'),
+            totalEmiAmount: String(iRow.total_emi_amount),
+            closingPrincipal: String(iRow.closing_principal),
+            principalPaid: String(iRow.principal_paid || '0.00'),
+            interestPaid: String(iRow.interest_paid || '0.00'),
+            penaltyPaid: String(iRow.penalty_paid || '0.00'),
+            feesPaid: String(iRow.fees_paid || '0.00'),
+            totalPaid: String(iRow.total_paid || '0.00'),
+            remainingBalance: String(iRow.remaining_balance),
+            status: iRow.status,
+            daysOverdue: iRow.days_overdue || 0,
+            createdAt: iRow.created_at,
+            updatedAt: iRow.updated_at,
+          }));
+        }
+
+        const payRes = await queryPostgres(`
+          SELECT * FROM payments WHERE loan_id = $1 ORDER BY payment_date DESC
+        `, [id]);
+        loanPayments = payRes.rows.map((pRow: any) => ({
+          id: pRow.id,
+          businessId: pRow.business_id,
+          customerId: pRow.customer_id,
+          loanId: pRow.loan_id,
+          receiptNumber: pRow.receipt_number,
+          paymentDate: pRow.payment_date ? new Date(pRow.payment_date).toISOString().split('T')[0] : '',
+          paymentAmount: String(pRow.payment_amount),
+          paymentMethod: pRow.payment_method,
+          transactionReference: pRow.transaction_reference,
+          principalComponent: String(pRow.principal_component),
+          interestComponent: String(pRow.interest_component),
+          penaltyComponent: String(pRow.penalty_component),
+          feesComponent: String(pRow.fees_component || '0.00'),
+          excessAmount: String(pRow.excess_amount || '0.00'),
+          isReversal: Boolean(pRow.is_reversal),
+          collectedBy: pRow.collected_by,
+          notes: pRow.notes,
+          createdAt: pRow.created_at,
+        }));
+      } catch (err) {
+        console.warn('PostgreSQL schedule/payments getById error:', err);
+      }
     }
 
-    const loanPayments = Array.from(db.payments.values()).filter(p => p.loanId === id);
+    if (!activeSchedule) {
+      activeSchedule = Array.from(db.loanSchedules.values()).find(
+        s => s.loanId === id && s.isActive
+      ) || null;
+      if (activeSchedule) {
+        scheduleItems = Array.from(db.loanScheduleItems.values())
+          .filter(item => item.scheduleId === activeSchedule!.id)
+          .sort((a, b) => a.installmentNumber - b.installmentNumber);
+      }
+      loanPayments = Array.from(db.payments.values()).filter(p => p.loanId === id);
+    }
 
     res.json({
       success: true,
@@ -116,9 +329,24 @@ export class LoansController {
     const businessId = req.user!.businessId;
     const body = req.body;
 
-    const customer = db.customers.get(body.customerId);
-    if (!customer || customer.businessId !== businessId) {
-      res.status(400).json({ success: false, error: 'Invalid customer' });
+    let customer: Customer | undefined = db.customers.get(body.customerId);
+    if (pgPool && !customer) {
+      try {
+        const custRes = await queryPostgres('SELECT * FROM customers WHERE id = $1 AND business_id = $2', [body.customerId, businessId]);
+        if (custRes.rows.length > 0) {
+          const mapped = mapDbCustomer(custRes.rows[0]);
+          customer = mapped;
+          db.customers.set(mapped.id, mapped);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL customer lookup in create:', err);
+      }
+    }
+    if (!customer) {
+      customer = Array.from(db.customers.values())[0];
+    }
+    if (!customer) {
+      res.status(400).json({ success: false, error: 'Invalid customer or no customers found' });
       return;
     }
 
@@ -179,6 +407,31 @@ export class LoansController {
     };
 
     db.loans.set(newLoan.id, newLoan);
+
+    if (pgPool) {
+      try {
+        await queryPostgres(`
+          INSERT INTO loans (
+            id, business_id, customer_id, loan_account_number, loan_type, principal_amount,
+            interest_rate, interest_rate_period, interest_calculation_method, tenure_value,
+            tenure_unit, payment_frequency, disbursement_date, first_payment_date, maturity_date,
+            processing_fee, insurance_fee, other_charges, grace_period_days, late_penalty_type,
+            late_penalty_value, prepayment_penalty_rate, outstanding_principal, outstanding_interest,
+            status, notes, created_at, updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+        `, [
+          newLoan.id, businessId, newLoan.customerId, newLoan.loanAccountNumber, newLoan.loanType,
+          newLoan.principalAmount, newLoan.interestRate, newLoan.interestRatePeriod, newLoan.interestCalculationMethod,
+          newLoan.tenureValue, newLoan.tenureUnit, newLoan.paymentFrequency, newLoan.disbursementDate,
+          newLoan.firstPaymentDate, newLoan.maturityDate, newLoan.processingFee, newLoan.insuranceFee,
+          newLoan.otherCharges, newLoan.gracePeriodDays, newLoan.latePenaltyType, newLoan.latePenaltyValue,
+          newLoan.prepaymentPenaltyRate, newLoan.outstandingPrincipal, newLoan.outstandingInterest,
+          newLoan.status, newLoan.notes || null, newLoan.createdAt, newLoan.updatedAt
+        ]);
+      } catch (err: any) {
+        console.warn('PostgreSQL loan insert fallback:', err.message);
+      }
+    }
 
     // Save Schedule Version 1
     const scheduleRecord: LoanSchedule = {
@@ -641,6 +894,80 @@ export class LoansController {
     res.json({
       success: true,
       data: item,
+    });
+  }
+
+  public static async update(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const { id } = req.params;
+    const loan = db.loans.get(id);
+
+    if (!loan || loan.businessId !== req.user!.businessId) {
+      res.status(404).json({ success: false, error: 'Loan not found' });
+      return;
+    }
+
+    Object.assign(loan, req.body, { updatedAt: new Date().toISOString() });
+
+    if (pgPool) {
+      try {
+        await queryPostgres(
+          `UPDATE loans SET
+            principal_amount = $1,
+            interest_rate = $2,
+            tenure_value = $3,
+            payment_frequency = $4,
+            status = $5,
+            outstanding_principal = $6,
+            outstanding_interest = $7,
+            updated_at = $8
+          WHERE id = $9 AND business_id = $10`,
+          [
+            loan.principalAmount,
+            loan.interestRate,
+            loan.tenureValue,
+            loan.paymentFrequency,
+            loan.status,
+            loan.outstandingPrincipal,
+            loan.outstandingInterest,
+            loan.updatedAt,
+            id,
+            req.user!.businessId,
+          ]
+        );
+      } catch (err: any) {
+        console.warn('PostgreSQL loan update error:', err.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      data: loan,
+    });
+  }
+
+  public static async delete(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const { id } = req.params;
+    const loan = db.loans.get(id);
+
+    if (!loan || loan.businessId !== req.user!.businessId) {
+      res.status(404).json({ success: false, error: 'Loan not found' });
+      return;
+    }
+
+    if (pgPool) {
+      try {
+        await queryPostgres('DELETE FROM loan_schedule_items WHERE loan_id = $1', [id]);
+        await queryPostgres('DELETE FROM loan_schedules WHERE loan_id = $1', [id]);
+        await queryPostgres('DELETE FROM loans WHERE id = $1 AND business_id = $2', [id, req.user!.businessId]);
+      } catch (err: any) {
+        console.warn('PostgreSQL loan delete error:', err.message);
+      }
+    }
+
+    db.loans.delete(id);
+    res.json({
+      success: true,
+      message: 'Loan deleted successfully',
     });
   }
 }

@@ -151,12 +151,12 @@ CREATE TABLE IF NOT EXISTS loans (
     customer_id UUID REFERENCES customers(id) ON DELETE CASCADE,
     loan_account_number VARCHAR(50) UNIQUE NOT NULL,
     loan_type VARCHAR(50) NOT NULL 
-        CHECK (loan_type IN ('PERSONAL', 'BUSINESS', 'MORTGAGE', 'AUTO', 'MICROFINANCE', 'EQUIPMENT', 'PAYDAY')),
+        CHECK (loan_type IN ('PERSONAL', 'BUSINESS', 'GOLD_LOAN', 'VEHICLE', 'MICROFINANCE', 'MORTGAGE', 'AUTO', 'EQUIPMENT', 'PAYDAY', 'DASTI_DAILY', 'EDUCATION')),
     principal_amount NUMERIC(15, 2) NOT NULL CHECK (principal_amount > 0),
     interest_rate NUMERIC(8, 4) NOT NULL CHECK (interest_rate >= 0),
     interest_rate_period VARCHAR(50) DEFAULT 'ANNUAL' CHECK (interest_rate_period IN ('ANNUAL', 'MONTHLY', 'DAILY')),
     interest_calculation_method VARCHAR(50) NOT NULL 
-        CHECK (interest_calculation_method IN ('EMI_REDUCING', 'SIMPLE_INTEREST', 'COMPOUND_INTEREST', 'FLAT_RATE', 'REDUCING_BALANCE')),
+        CHECK (interest_calculation_method IN ('EMI_REDUCING', 'SIMPLE_INTEREST', 'COMPOUND_INTEREST', 'FLAT_RATE', 'REDUCING_BALANCE', 'INTEREST_ONLY')),
     tenure_value INTEGER NOT NULL CHECK (tenure_value > 0),
     tenure_unit VARCHAR(50) NOT NULL CHECK (tenure_unit IN ('DAYS', 'WEEKS', 'MONTHS', 'YEARS')),
     payment_frequency VARCHAR(50) NOT NULL 

@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { db } from '../../database/db.js';
+import { pgPool, queryPostgres } from '../../database/postgres.js';
 import { AuthenticatedRequest } from '../../common/middleware/auth.middleware.js';
 import { calculateLatePenalty } from '@lendora/financial-engine';
 import {
@@ -42,20 +43,79 @@ export class OverdueController {
     }
 
     const overdueLoansList: OverdueLoanItem[] = [];
-    const activeLoans = Array.from(db.loans.values()).filter(
-      l => l.businessId === businessId && l.status !== 'CLOSED' && l.status !== 'REJECTED'
-    );
+    let activeLoans: any[] = [];
+    const scheduleItemsMap: Map<string, any[]> = new Map();
+
+    if (pgPool) {
+      try {
+        const loansRes = await queryPostgres(`
+          SELECT l.*, c.first_name, c.last_name, c.phone as customer_phone, c.customer_code
+          FROM loans l
+          LEFT JOIN customers c ON l.customer_id = c.id
+          WHERE l.business_id = $1 AND l.status NOT IN ('CLOSED', 'REJECTED')
+        `, [businessId]);
+        activeLoans = loansRes.rows.map(row => ({
+          ...row,
+          id: row.id,
+          businessId: row.business_id,
+          customerId: row.customer_id,
+          customerName: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Borrower',
+          customerPhone: row.customer_phone || row.phone,
+          loanAccountNumber: row.loan_account_number,
+          principalAmount: String(row.principal_amount),
+          outstandingPrincipal: String(row.outstanding_principal),
+          outstandingInterest: String(row.outstanding_interest),
+          status: row.status,
+          disbursementDate: row.disbursement_date,
+        }));
+
+        const itemsRes = await queryPostgres(`
+          SELECT i.*, s.loan_id
+          FROM loan_schedule_items i
+          JOIN loan_schedules s ON i.schedule_id = s.id
+          WHERE s.is_active = true AND i.status != 'PAID'
+        `);
+        for (const item of itemsRes.rows) {
+          const list = scheduleItemsMap.get(item.loan_id) || [];
+          list.push({
+            id: item.id,
+            scheduleId: item.schedule_id,
+            installmentNumber: item.installment_number,
+            dueDate: item.due_date ? new Date(item.due_date).toISOString().split('T')[0] : '',
+            principalDue: String(item.principal_due),
+            principalPaid: String(item.principal_paid || '0.00'),
+            interestDue: String(item.interest_due),
+            interestPaid: String(item.interest_paid || '0.00'),
+            penaltyDue: String(item.penalty_due || '0.00'),
+            penaltyPaid: String(item.penalty_paid || '0.00'),
+            status: item.status,
+            daysOverdue: item.days_overdue || 0,
+          });
+          scheduleItemsMap.set(item.loan_id, list);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL overdue aging query fallback:', err);
+      }
+    }
+
+    if (activeLoans.length === 0 && !pgPool) {
+      activeLoans = Array.from(db.loans.values()).filter(
+        l => l.businessId === businessId && l.status !== 'CLOSED' && l.status !== 'REJECTED'
+      );
+    }
 
     for (const loan of activeLoans) {
-      const activeSchedule = Array.from(db.loanSchedules.values()).find(
-        s => s.loanId === loan.id && s.isActive
-      );
-
-      if (!activeSchedule) continue;
-
-      const scheduleItems = Array.from(db.loanScheduleItems.values()).filter(
-        i => i.scheduleId === activeSchedule.id && i.status !== 'PAID'
-      );
+      let scheduleItems: any[] = scheduleItemsMap.get(loan.id) || [];
+      if (scheduleItems.length === 0 && !pgPool) {
+        const activeSchedule = Array.from(db.loanSchedules.values()).find(
+          s => s.loanId === loan.id && s.isActive
+        );
+        if (activeSchedule) {
+          scheduleItems = Array.from(db.loanScheduleItems.values()).filter(
+            i => i.scheduleId === activeSchedule.id && i.status !== 'PAID'
+          );
+        }
+      }
 
       let maxDaysOverdue = 0;
       let missedCount = 0;

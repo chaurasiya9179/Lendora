@@ -13,6 +13,7 @@ router.get('/', CustomersController.list);
 router.get('/:id', CustomersController.getById);
 router.post('/', rbacMiddleware(['ADMIN', 'MANAGER']), validateBody(CustomerSchema), CustomersController.create as any);
 router.put('/:id', rbacMiddleware(['ADMIN', 'MANAGER']), CustomersController.update as any);
+router.delete('/:id', rbacMiddleware(['ADMIN']), CustomersController.delete as any);
 router.post('/:id/notes', validateBody(CustomerNoteSchema), CustomersController.addNote as any);
 router.post('/:id/documents', CustomersController.addDocument as any);
 

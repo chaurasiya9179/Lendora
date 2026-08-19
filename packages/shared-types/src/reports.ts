@@ -9,9 +9,13 @@ export interface PortfolioMetrics {
   defaultedLoans: number;
   totalPrincipalDisbursed: string;
   totalPrincipalOutstanding: string;
+  totalPrincipalRepaid?: string;
   totalInterestEarned: string;
   totalInterestOutstanding: string;
+  totalInterestExpected?: string;
+  totalPortfolioAmount?: string;
   totalAmountCollected: string;
+  totalAmountOutstanding?: string;
   todayCollection: string;
   thisMonthCollection: string;
   totalOverdueAmount: string;

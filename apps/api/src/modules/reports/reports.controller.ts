@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { db } from '../../database/db.js';
+import { pgPool, queryPostgres } from '../../database/postgres.js';
 import { AuthenticatedRequest } from '../../common/middleware/auth.middleware.js';
 import {
   DashboardAnalytics,
@@ -15,9 +16,48 @@ export class ReportsController {
     const todayStr = new Date().toISOString().split('T')[0];
     const currentMonthStr = todayStr.substring(0, 7);
 
-    const customers = Array.from(db.customers.values()).filter(c => c.businessId === businessId);
-    const loans = Array.from(db.loans.values()).filter(l => l.businessId === businessId);
-    const payments = Array.from(db.payments.values()).filter(p => p.businessId === businessId && !p.isReversal);
+    let customers: any[] = [];
+    let loans: any[] = [];
+    let payments: any[] = [];
+
+    if (pgPool) {
+      try {
+        const custRes = await queryPostgres('SELECT * FROM customers WHERE business_id = $1', [businessId]);
+        customers = custRes.rows.map(row => ({
+          id: row.id,
+          businessId: row.business_id,
+          customerStatus: row.customer_status || 'ACTIVE',
+        }));
+
+        const loansRes = await queryPostgres('SELECT * FROM loans WHERE business_id = $1', [businessId]);
+        loans = loansRes.rows.map(row => ({
+          id: row.id,
+          businessId: row.business_id,
+          principalAmount: String(row.principal_amount),
+          outstandingPrincipal: String(row.outstanding_principal),
+          outstandingInterest: String(row.outstanding_interest),
+          outstandingPenalty: String(row.outstanding_penalty || '0.00'),
+          totalInterestPaid: String(row.total_interest_paid || '0.00'),
+          totalPenaltyPaid: String(row.total_penalty_paid || '0.00'),
+          status: row.status,
+        }));
+
+        const payRes = await queryPostgres('SELECT * FROM payments WHERE business_id = $1 AND is_reversal = false', [businessId]);
+        payments = payRes.rows.map(row => ({
+          id: row.id,
+          paymentAmount: String(row.payment_amount),
+          paymentDate: row.payment_date ? new Date(row.payment_date).toISOString().split('T')[0] : '',
+        }));
+      } catch (err) {
+        console.warn('PostgreSQL dashboard query fallback:', err);
+      }
+    }
+
+    if (customers.length === 0 && loans.length === 0 && !pgPool) {
+      customers = Array.from(db.customers.values()).filter(c => c.businessId === businessId);
+      loans = Array.from(db.loans.values()).filter(l => l.businessId === businessId);
+      payments = Array.from(db.payments.values()).filter(p => p.businessId === businessId && !p.isReversal);
+    }
 
     let totalDisbursed = new Decimal(0);
     let totalOutstandingP = new Decimal(0);
@@ -84,6 +124,11 @@ export class ReportsController {
       ? Math.round(Number(totalOverdue.dividedBy(totalDisbursed).times(100).toFixed(1)))
       : 0;
 
+    const totalPrincipalRepaid = Decimal.max(0, totalDisbursed.minus(totalOutstandingP));
+    const totalInterestExpected = totalInterestEarned.plus(totalOutstandingI);
+    const totalPortfolioAmount = totalDisbursed.plus(totalInterestExpected);
+    const totalAmountOutstanding = totalOutstandingP.plus(totalOutstandingI);
+
     const metrics: PortfolioMetrics = {
       totalCustomers: customers.length,
       activeCustomers: customers.filter(c => c.customerStatus === 'ACTIVE').length,
@@ -93,9 +138,13 @@ export class ReportsController {
       defaultedLoans: defaultedLoansCount,
       totalPrincipalDisbursed: totalDisbursed.toFixed(2),
       totalPrincipalOutstanding: totalOutstandingP.toFixed(2),
+      totalPrincipalRepaid: totalPrincipalRepaid.toFixed(2),
       totalInterestEarned: totalInterestEarned.toFixed(2),
       totalInterestOutstanding: totalOutstandingI.toFixed(2),
+      totalInterestExpected: totalInterestExpected.toFixed(2),
+      totalPortfolioAmount: totalPortfolioAmount.toFixed(2),
       totalAmountCollected: totalCollected.toFixed(2),
+      totalAmountOutstanding: totalAmountOutstanding.toFixed(2),
       todayCollection: todayColl.toFixed(2),
       thisMonthCollection: monthColl.toFixed(2),
       totalOverdueAmount: totalOverdue.toFixed(2),

@@ -11,10 +11,16 @@ import {
   PlusCircle,
   Receipt,
   FileSpreadsheet,
+  Edit3,
+  Trash2,
+  Eye,
+  ArrowRight,
+  UserCheck,
 } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { MetricCard } from '../../components/common/MetricCard.js';
-import { formatCurrency, formatPercentage } from '../../utils/formatters.js';
+import { StatusBadge } from '../../components/common/StatusBadge.js';
+import { formatCurrency, formatDate } from '../../utils/formatters.js';
 import {
   BarChart,
   Bar,
@@ -29,19 +35,39 @@ import {
   Legend,
 } from 'recharts';
 import { CreateCustomerModal } from '../customers/CreateCustomerModal.js';
+import { EditCustomerModal } from '../customers/EditCustomerModal.js';
 import { CreateLoanWizard } from '../loans/CreateLoanWizard.js';
+import { EditLoanModal } from '../loans/EditLoanModal.js';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal.js';
 import { Link } from 'react-router-dom';
+import { Customer, Loan } from '@lendora/shared-types';
 
 export const DashboardPage: React.FC = () => {
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [isLoanModalOpen, setIsLoanModalOpen] = useState(false);
+  const [loanCustomerId, setLoanCustomerId] = useState<string | null>(null);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
+  const [repayingLoanId, setRepayingLoanId] = useState<string | undefined>(undefined);
 
   const { data: analytics, isLoading, refetch } = useQuery({
     queryKey: ['dashboard-analytics'],
     queryFn: api.getDashboardAnalytics,
   });
+
+  const { data: customersData, refetch: refetchCustomers } = useQuery({
+    queryKey: ['dashboard-customers'],
+    queryFn: () => api.getCustomers({ limit: '6' }),
+  });
+
+  const { data: loansData, refetch: refetchLoans } = useQuery({
+    queryKey: ['dashboard-loans'],
+    queryFn: () => api.getLoans({ limit: '6' }),
+  });
+
+  const customers: Customer[] = Array.isArray(customersData) ? customersData : (customersData?.data || []);
+  const loans: Loan[] = Array.isArray(loansData) ? loansData : (loansData?.data || []);
 
   const metrics = analytics?.metrics;
   const monthlyTrends = analytics?.monthlyTrends || [];
@@ -57,13 +83,19 @@ export const DashboardPage: React.FC = () => {
     );
   }
 
+  const handleRefetchAll = () => {
+    refetch();
+    refetchCustomers();
+    refetchLoans();
+  };
+
   return (
     <div className="space-y-6">
       {/* Top Header & Quick Actions */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold text-slate-100 tracking-tight">Portfolio Command Dashboard</h2>
-          <p className="text-xs text-slate-400 mt-0.5">Real-time lending analytics and loan lifecycle monitoring</p>
+          <p className="text-xs text-slate-400 mt-0.5">Real-time lending analytics, borrower directory and active loan lifecycle monitoring</p>
         </div>
 
         <div className="flex items-center space-x-2">
@@ -93,36 +125,36 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
-      {/* KPI Metric Cards Grid */}
+      {/* KPI Metric Cards Grid - Total Principal, Total Interest, Total Amount */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         <MetricCard
-          title="Total Disbursed"
+          title="Total Principal (Kul Mool)"
           value={formatCurrency(metrics?.totalPrincipalDisbursed)}
-          subtitle={`${metrics?.totalLoans || 0} Total Loans (${metrics?.activeLoans || 0} Active)`}
+          subtitle={`Repaid: ${formatCurrency(metrics?.totalPrincipalRepaid || '0.00')} • Out: ${formatCurrency(metrics?.totalPrincipalOutstanding)}`}
           icon={Banknote}
-          accentColor="emerald"
-        />
-
-        <MetricCard
-          title="Principal Outstanding"
-          value={formatCurrency(metrics?.totalPrincipalOutstanding)}
-          subtitle={`Interest Due: ${formatCurrency(metrics?.totalInterestOutstanding)}`}
-          icon={TrendingUp}
           accentColor="blue"
         />
 
         <MetricCard
-          title="Collections (This Month)"
-          value={formatCurrency(metrics?.thisMonthCollection)}
-          subtitle={`Today: ${formatCurrency(metrics?.todayCollection)}`}
-          icon={DollarSign}
+          title="Total Interest (Kul Byaj)"
+          value={formatCurrency(metrics?.totalInterestExpected || (Number(metrics?.totalInterestEarned || 0) + Number(metrics?.totalInterestOutstanding || 0)).toFixed(2))}
+          subtitle={`Earned: ${formatCurrency(metrics?.totalInterestEarned)} • Due: ${formatCurrency(metrics?.totalInterestOutstanding)}`}
+          icon={TrendingUp}
           accentColor="emerald"
         />
 
         <MetricCard
-          title="Total Overdue / PAR"
-          value={formatCurrency(metrics?.totalOverdueAmount)}
-          subtitle={`NPL Rate: ${metrics?.nonPerformingLoanRate || 0}%`}
+          title="Total Amount (Mool + Byaj)"
+          value={formatCurrency(metrics?.totalPortfolioAmount || (Number(metrics?.totalPrincipalDisbursed || 0) + Number(metrics?.totalInterestEarned || 0) + Number(metrics?.totalInterestOutstanding || 0)).toFixed(2))}
+          subtitle={`Collected: ${formatCurrency(metrics?.totalAmountCollected)} • Baaki: ${formatCurrency(metrics?.totalAmountOutstanding || metrics?.totalPrincipalOutstanding)}`}
+          icon={DollarSign}
+          accentColor="purple"
+        />
+
+        <MetricCard
+          title="Current Outstanding (Kul Bakiya)"
+          value={formatCurrency(metrics?.totalAmountOutstanding || (Number(metrics?.totalPrincipalOutstanding || 0) + Number(metrics?.totalInterestOutstanding || 0)).toFixed(2))}
+          subtitle={`Overdue: ${formatCurrency(metrics?.totalOverdueAmount)} (${metrics?.activeLoans || 0} Active Loans)`}
           icon={AlertTriangle}
           accentColor="rose"
         />
@@ -132,31 +164,31 @@ export const DashboardPage: React.FC = () => {
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="glass-card rounded-xl p-4 flex items-center space-x-3">
           <div className="p-2.5 rounded-xl bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-            <Percent className="w-5 h-5" />
+            <Receipt className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Collection Rate</span>
-            <div className="text-lg font-bold text-slate-100 font-mono">{metrics?.collectionEfficiencyRate || 100}%</div>
+            <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Total Recovered</span>
+            <div className="text-lg font-bold text-slate-100 font-mono">{formatCurrency(metrics?.totalAmountCollected)}</div>
           </div>
         </div>
 
         <div className="glass-card rounded-xl p-4 flex items-center space-x-3">
-          <div className="p-2.5 rounded-xl bg-purple-500/10 text-purple-400 border border-purple-500/20">
-            <TrendingUp className="w-5 h-5" />
+          <div className="p-2.5 rounded-xl bg-sky-500/10 text-sky-400 border border-sky-500/20">
+            <DollarSign className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Interest Earned</span>
-            <div className="text-lg font-bold text-slate-100 font-mono">{formatCurrency(metrics?.totalInterestEarned)}</div>
+            <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Today's Vasooli</span>
+            <div className="text-lg font-bold text-slate-100 font-mono">{formatCurrency(metrics?.todayCollection)}</div>
           </div>
         </div>
 
         <div className="glass-card rounded-xl p-4 flex items-center space-x-3">
           <div className="p-2.5 rounded-xl bg-amber-500/10 text-amber-400 border border-amber-500/20">
-            <ShieldAlert className="w-5 h-5" />
+            <Percent className="w-5 h-5" />
           </div>
           <div>
-            <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Penalties Collected</span>
-            <div className="text-lg font-bold text-slate-100 font-mono">{formatCurrency(metrics?.totalPenaltyCollected)}</div>
+            <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">This Month</span>
+            <div className="text-lg font-bold text-slate-100 font-mono">{formatCurrency(metrics?.thisMonthCollection)}</div>
           </div>
         </div>
 
@@ -166,7 +198,9 @@ export const DashboardPage: React.FC = () => {
           </div>
           <div>
             <span className="text-[11px] text-slate-400 uppercase tracking-wider font-semibold">Total Borrowers</span>
-            <div className="text-lg font-bold text-slate-100 font-mono">{metrics?.totalCustomers || 0}</div>
+            <div className="text-lg font-bold text-slate-100 font-mono">
+              {metrics?.activeCustomers || 0} / {metrics?.totalCustomers || 0}
+            </div>
           </div>
         </div>
       </div>
@@ -195,10 +229,10 @@ export const DashboardPage: React.FC = () => {
                 <BarChart data={monthlyTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
                   <XAxis dataKey="monthLabel" stroke="#64748b" fontSize={11} />
-                  <YAxis stroke="#64748b" fontSize={11} tickFormatter={v => `$${v}`} />
+                  <YAxis stroke="#64748b" fontSize={11} tickFormatter={v => `₹${v}`} />
                   <Tooltip
                     contentStyle={{ backgroundColor: '#0f172a', borderColor: '#334155', borderRadius: '12px', fontSize: '12px' }}
-                    formatter={(val: any) => [`$${Number(val).toLocaleString()}`, '']}
+                    formatter={(val: any) => [formatCurrency(val), '']}
                   />
                   <Legend wrapperStyle={{ fontSize: '12px', paddingTop: '10px' }} />
                   <Bar dataKey="disbursedPrincipal" name="Disbursed" fill="#3b82f6" radius={[4, 4, 0, 0]} />
@@ -258,23 +292,221 @@ export const DashboardPage: React.FC = () => {
         </div>
       </div>
 
+      {/* Real-time Borrowers & Loans Master Tables Section */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Active Borrowers & Customer Profiles */}
+        <div className="glass-panel rounded-2xl p-6 border border-slate-800 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-2">
+                <UserCheck className="w-4 h-4 text-brand-400" />
+                <span>Registered Borrowers / Customers</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">Live CRM directory with KYC & Income</p>
+            </div>
+            <Link
+              to="/customers"
+              className="text-xs text-brand-400 hover:text-brand-300 font-semibold flex items-center space-x-1"
+            >
+              <span>View All</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {customers.length === 0 ? (
+            <div className="text-center py-8 text-xs text-slate-500">No customers registered yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-900/60 border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                  <tr>
+                    <th className="py-2.5 px-3">Customer</th>
+                    <th className="py-2.5 px-3">Phone & City</th>
+                    <th className="py-2.5 px-3">KYC Status</th>
+                    <th className="py-2.5 px-3 text-right">Admin Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                  {customers.slice(0, 5).map(c => (
+                    <tr key={c.id} className="hover:bg-slate-800/30">
+                      <td className="py-3 px-3">
+                        <div className="font-semibold text-slate-100">{c.firstName} {c.lastName}</div>
+                        <div className="text-[11px] font-mono text-brand-400">{c.customerCode}</div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <div className="text-slate-200">{c.phone}</div>
+                        <div className="text-[11px] text-slate-500">{c.city || 'India'}</div>
+                      </td>
+                      <td className="py-3 px-3">
+                        <StatusBadge status={c.kycStatus || 'VERIFIED'} size="sm" />
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <div className="flex items-center justify-end space-x-1.5">
+                          <button
+                            onClick={() => {
+                              setLoanCustomerId(c.id);
+                              setIsLoanModalOpen(true);
+                            }}
+                            className="px-2 py-1 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
+                            title="Issue Loan to this Customer"
+                          >
+                            <Banknote className="w-3 h-3" />
+                            <span>Issue Loan</span>
+                          </button>
+                          <button
+                            onClick={() => setEditingCustomer(c)}
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400 rounded-lg border border-slate-700 transition"
+                            title="Edit Customer Details"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <Link
+                            to={`/customers/${c.id}`}
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-brand-400 rounded-lg border border-slate-700 transition"
+                            title="View 360° Profile"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {/* Recent Loan Accounts */}
+        <div className="glass-panel rounded-2xl p-6 border border-slate-800 space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h3 className="text-sm font-bold text-slate-100 flex items-center space-x-2">
+                <Banknote className="w-4 h-4 text-emerald-400" />
+                <span>Sanctioned Loan Portfolio</span>
+              </h3>
+              <p className="text-xs text-slate-400 mt-0.5">Active disbursement & repayment ledger</p>
+            </div>
+            <Link
+              to="/loans"
+              className="text-xs text-brand-400 hover:text-brand-300 font-semibold flex items-center space-x-1"
+            >
+              <span>View All</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          {loans.length === 0 ? (
+            <div className="text-center py-8 text-xs text-slate-500">No loans sanctioned yet.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-900/60 border-b border-slate-800 text-slate-400 font-semibold uppercase">
+                  <tr>
+                    <th className="py-2.5 px-3">Account & Borrower</th>
+                    <th className="py-2.5 px-3">Principal</th>
+                    <th className="py-2.5 px-3">Outstanding</th>
+                    <th className="py-2.5 px-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                  {loans.slice(0, 5).map(l => (
+                    <tr key={l.id} className="hover:bg-slate-800/30">
+                      <td className="py-3 px-3">
+                        <div className="font-mono font-semibold text-brand-400">{l.loanAccountNumber}</div>
+                        <div className="text-[11px] text-slate-400">{l.customerName}</div>
+                      </td>
+                      <td className="py-3 px-3 font-mono font-semibold text-slate-100">
+                        {formatCurrency(l.principalAmount)}
+                      </td>
+                      <td className="py-3 px-3 font-mono text-slate-200">
+                        {formatCurrency(l.outstandingPrincipal)}
+                      </td>
+                      <td className="py-3 px-3 text-right">
+                        <div className="flex items-center justify-end space-x-1.5">
+                          {l.status === 'ACTIVE' && (
+                            <button
+                              onClick={() => setRepayingLoanId(l.id)}
+                              className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
+                            >
+                              <Receipt className="w-3 h-3" />
+                              <span>Repay</span>
+                            </button>
+                          )}
+                          <button
+                            onClick={() => setEditingLoan(l)}
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400 rounded-lg border border-slate-700 transition"
+                            title="Edit Loan"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                          </button>
+                          <Link
+                            to={`/loans/${l.id}`}
+                            className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-brand-400 rounded-lg border border-slate-700 transition"
+                            title="View Schedule"
+                          >
+                            <Eye className="w-3.5 h-3.5" />
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
       {/* Modals */}
       <CreateCustomerModal
         isOpen={isCustomerModalOpen}
         onClose={() => setIsCustomerModalOpen(false)}
-        onSuccess={() => refetch()}
+        onSuccess={handleRefetchAll}
       />
 
       <CreateLoanWizard
         isOpen={isLoanModalOpen}
-        onClose={() => setIsLoanModalOpen(false)}
-        onSuccess={() => refetch()}
+        onClose={() => {
+          setIsLoanModalOpen(false);
+          setLoanCustomerId(null);
+        }}
+        onSuccess={() => {
+          setLoanCustomerId(null);
+          handleRefetchAll();
+        }}
+        preselectedCustomerId={loanCustomerId || undefined}
       />
 
       <RecordPaymentModal
         isOpen={isPaymentModalOpen}
         onClose={() => setIsPaymentModalOpen(false)}
-        onSuccess={() => refetch()}
+        onSuccess={handleRefetchAll}
+      />
+
+      {editingCustomer && (
+        <EditCustomerModal
+          isOpen={!!editingCustomer}
+          onClose={() => setEditingCustomer(null)}
+          onSuccess={handleRefetchAll}
+          customer={editingCustomer}
+        />
+      )}
+
+      {editingLoan && (
+        <EditLoanModal
+          isOpen={!!editingLoan}
+          onClose={() => setEditingLoan(null)}
+          onSuccess={handleRefetchAll}
+          loan={editingLoan}
+        />
+      )}
+
+      <RecordPaymentModal
+        isOpen={!!repayingLoanId}
+        onClose={() => setRepayingLoanId(undefined)}
+        onSuccess={handleRefetchAll}
+        preselectedLoanId={repayingLoanId}
       />
     </div>
   );

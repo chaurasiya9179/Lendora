@@ -28,11 +28,6 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const handleQuickLogin = (roleEmail: string) => {
-    setEmail(roleEmail);
-    setPassword('Admin@123');
-  };
-
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-4 relative overflow-hidden">
       {/* Background glow accents */}
@@ -64,7 +59,7 @@ export const LoginPage: React.FC = () => {
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                Email Address
+                Admin Email Address
               </label>
               <div className="relative">
                 <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -73,7 +68,7 @@ export const LoginPage: React.FC = () => {
                   required
                   value={email}
                   onChange={e => setEmail(e.target.value)}
-                  placeholder="name@lendora.com"
+                  placeholder="admin@lendora.com"
                   className="w-full pl-10 pr-4 py-2.5 bg-slate-900/80 border border-slate-800 rounded-xl text-sm text-slate-200 placeholder-slate-500 focus:outline-none focus:border-brand-500 focus:ring-1 focus:ring-brand-500 transition"
                 />
               </div>
@@ -81,7 +76,7 @@ export const LoginPage: React.FC = () => {
 
             <div>
               <label className="block text-xs font-semibold text-slate-300 uppercase tracking-wider mb-1.5">
-                Password
+                Admin Password
               </label>
               <div className="relative">
                 <Lock className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
@@ -99,52 +94,18 @@ export const LoginPage: React.FC = () => {
             <button
               type="submit"
               disabled={isSubmitting}
-              className="w-full py-3 px-4 bg-brand-600 hover:bg-brand-500 active:bg-brand-700 text-white text-sm font-semibold rounded-xl shadow-lg shadow-brand-500/20 flex items-center justify-center space-x-2 transition disabled:opacity-50 mt-2"
+              className="w-full py-3 px-4 bg-brand-600 hover:bg-brand-500 active:bg-brand-700 text-white text-sm font-semibold rounded-xl shadow-lg shadow-brand-500/20 flex items-center justify-center space-x-2 transition disabled:opacity-50 mt-2 cursor-pointer"
             >
-              <span>{isSubmitting ? 'Authenticating...' : 'Sign In'}</span>
+              <span>{isSubmitting ? 'Authenticating Admin...' : 'Sign In as Administrator'}</span>
               <ArrowRight className="w-4 h-4" />
             </button>
           </form>
 
-          {/* Quick Role Switcher for Evaluation */}
-          <div className="mt-8 pt-6 border-t border-slate-800/80">
-            <div className="flex items-center space-x-1.5 text-xs text-slate-400 mb-3 font-semibold uppercase tracking-wider">
+          {/* Admin Credentials Helper */}
+          <div className="mt-6 pt-5 border-t border-slate-800/80 text-center">
+            <div className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-400">
               <Shield className="w-3.5 h-3.5 text-brand-400" />
-              <span>Quick Login by Role:</span>
-            </div>
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('admin@lendora.com')}
-                className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 text-left transition"
-              >
-                <div className="font-semibold text-brand-400">Admin</div>
-                <div className="text-[10px] text-slate-500 truncate">admin@lendora.com</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('manager@lendora.com')}
-                className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 text-left transition"
-              >
-                <div className="font-semibold text-blue-400">Manager</div>
-                <div className="text-[10px] text-slate-500 truncate">manager@lendora.com</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('agent@lendora.com')}
-                className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 text-left transition"
-              >
-                <div className="font-semibold text-amber-400">Collection Agent</div>
-                <div className="text-[10px] text-slate-500 truncate">agent@lendora.com</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('accountant@lendora.com')}
-                className="p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-300 text-left transition"
-              >
-                <div className="font-semibold text-purple-400">Accountant</div>
-                <div className="text-[10px] text-slate-500 truncate">accountant@lendora.com</div>
-              </button>
+              <span>Default Admin: <strong className="text-slate-200">admin@lendora.com</strong> | <strong className="text-slate-200">Admin@123</strong></span>
             </div>
           </div>
         </div>

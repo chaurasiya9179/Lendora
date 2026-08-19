@@ -5,6 +5,7 @@ import { api } from '../../lib/api.js';
 import { StatusBadge } from '../../components/common/StatusBadge.js';
 import { Pagination } from '../../components/common/Pagination.js';
 import { formatCurrency, formatDate } from '../../utils/formatters.js';
+import { sendPaymentReceiptWhatsApp } from '../../utils/whatsapp.js';
 import { RecordPaymentModal } from './RecordPaymentModal.js';
 import { PaymentReceiptModal } from './PaymentReceiptModal.js';
 import { Modal } from '../../components/common/Modal.js';
@@ -162,6 +163,26 @@ export const PaymentsListPage: React.FC = () => {
                       >
                         <Printer className="w-3.5 h-3.5 text-brand-400" />
                         <span>Receipt</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
+                          sendPaymentReceiptWhatsApp({
+                            receiptNumber: p.receiptNumber,
+                            customerName: p.customerName || 'Borrower',
+                            phone: (p as any).customerPhone,
+                            loanAccountNumber: p.loanAccountNumber,
+                            paymentDate: p.paymentDate,
+                            paymentAmount: p.paymentAmount,
+                            principalPaid: p.principalComponent,
+                            interestPaid: p.interestComponent,
+                            paymentMethod: p.paymentMethod,
+                          });
+                        }}
+                        className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30 transition inline-flex items-center"
+                        title="Send Receipt on WhatsApp"
+                      >
+                        <span className="text-xs">📲</span>
                       </button>
 
                       {!p.isReversal && (

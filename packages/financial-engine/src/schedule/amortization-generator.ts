@@ -9,7 +9,8 @@ export type CalculationMethod =
   | 'SIMPLE_INTEREST'
   | 'COMPOUND_INTEREST'
   | 'FLAT_RATE'
-  | 'REDUCING_BALANCE';
+  | 'REDUCING_BALANCE'
+  | 'INTEREST_ONLY';
 
 export interface AmortizationScheduleItem {
   installmentNumber: number;
@@ -116,6 +117,57 @@ export function generateAmortizationSchedule(params: GenerateScheduleParams): Am
   let currentPrincipal = new Decimal(principal);
   let totalInterestSum = new Decimal(0);
   let totalFeesSum = new Decimal(0);
+
+  if (method === 'INTEREST_ONLY') {
+    // Interest-Only: Borrower pays only periodic interest each month; Principal is due on the final installment
+    const periodicRate = getPeriodicInterestRate(annualRate, frequency);
+    const periodicInterest = roundCurrency(principal.times(periodicRate), precision);
+
+    for (let i = 1; i <= totalInstallments; i++) {
+      const dueDate = addFrequencyPeriod(firstDate, frequency, i - 1);
+      const isFinal = i === totalInstallments;
+      const opening = principal;
+      const principalDue = isFinal ? principal : new Decimal(0);
+      const closing = isFinal ? new Decimal(0) : principal;
+
+      totalInterestSum = totalInterestSum.plus(periodicInterest);
+      totalFeesSum = totalFeesSum.plus(feesPerInst);
+
+      const totalDue = principalDue.plus(periodicInterest).plus(feesPerInst);
+
+      items.push({
+        installmentNumber: i,
+        dueDate: formatDateToISO(dueDate),
+        openingPrincipal: opening.toFixed(precision),
+        principalDue: principalDue.toFixed(precision),
+        interestDue: periodicInterest.toFixed(precision),
+        feesDue: feesPerInst.toFixed(precision),
+        penaltyDue: '0.00',
+        totalDue: totalDue.toFixed(precision),
+        closingPrincipal: closing.toFixed(precision),
+        status: 'UPCOMING',
+      });
+    }
+
+    const lastDueDate = items.length > 0 ? items[items.length - 1].dueDate : formatDateToISO(firstDate);
+    const totalRepayable = principal.plus(totalInterestSum).plus(totalFeesSum);
+
+    return {
+      principalAmount: principal.toFixed(precision),
+      interestRate: annualRate.toFixed(4),
+      calculationMethod: method,
+      paymentFrequency: frequency,
+      totalInstallments,
+      periodicInstallmentAmount: periodicInterest.toFixed(precision),
+      totalInterestDue: totalInterestSum.toFixed(precision),
+      totalFeesDue: totalFeesSum.toFixed(precision),
+      totalRepayable: totalRepayable.toFixed(precision),
+      disbursementDate: formatDateToISO(disbDate),
+      firstPaymentDate: formatDateToISO(firstDate),
+      maturityDate: lastDueDate,
+      items,
+    };
+  }
 
   if (method === 'EMI_REDUCING' || method === 'REDUCING_BALANCE') {
     const emiResult = calculateEMI(principal, annualRate, totalInstallments, frequency, precision);

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import Decimal from 'decimal.js';
 import {
@@ -22,6 +22,7 @@ import {
   PlayCircle,
   XCircle,
   Edit3,
+  Trash2,
   ShieldAlert,
 } from 'lucide-react';
 import { api } from '../../lib/api.js';
@@ -29,11 +30,14 @@ import { StatusBadge } from '../../components/common/StatusBadge.js';
 import { MetricCard } from '../../components/common/MetricCard.js';
 import { Modal } from '../../components/common/Modal.js';
 import { formatCurrency, formatDate } from '../../utils/formatters.js';
+import { sendLoanSummaryWhatsApp, sendDueReminderWhatsApp } from '../../utils/whatsapp.js';
 import { RecordPaymentModal } from '../payments/RecordPaymentModal.js';
 import { CreateLoanWizard } from './CreateLoanWizard.js';
+import { EditLoanModal } from './EditLoanModal.js';
 
 export const LoanDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
@@ -42,6 +46,7 @@ export const LoanDetailPage: React.FC = () => {
   const [isChangeDateModalOpen, setIsChangeDateModalOpen] = useState(false);
   const [isNewLoanModalOpen, setIsNewLoanModalOpen] = useState(false);
   const [isEditPrincipalModalOpen, setIsEditPrincipalModalOpen] = useState(false);
+  const [isEditLoanModalOpen, setIsEditLoanModalOpen] = useState(false);
 
   // Admin Principal Edit State
   const [newPrincipalValue, setNewPrincipalValue] = useState('');
@@ -207,6 +212,22 @@ export const LoanDetailPage: React.FC = () => {
     }
   };
 
+  const handleDeleteLoan = async () => {
+    if (!id || !loan) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete loan account "${loan.loanAccountNumber}"?\n\nThis will permanently remove this loan record and schedule.`
+    );
+    if (!confirmed) return;
+
+    try {
+      await api.deleteLoan(id);
+      alert('Loan deleted successfully!');
+      navigate('/loans');
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete loan');
+    }
+  };
+
   if (isLoading || !loan) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -256,6 +277,16 @@ export const LoanDetailPage: React.FC = () => {
 
         {/* Action Controls */}
         <div className="flex flex-wrap items-center gap-2">
+          {/* Admin Edit Loan Button */}
+          <button
+            onClick={() => setIsEditLoanModalOpen(true)}
+            className="px-3.5 py-2 bg-amber-600/20 hover:bg-amber-600/30 text-amber-300 border border-amber-500/30 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition"
+            title="Admin: Edit Loan Parameters and Status"
+          >
+            <Edit3 className="w-4 h-4 text-amber-400" />
+            <span>Edit Loan</span>
+          </button>
+
           {/* Admin Edit Principal Button */}
           <button
             onClick={() => {
@@ -312,6 +343,28 @@ export const LoanDetailPage: React.FC = () => {
             </button>
           )}
 
+          {/* WhatsApp Statement Share */}
+          <button
+            onClick={() => {
+              sendLoanSummaryWhatsApp({
+                customerName: loan.customerName || 'Borrower',
+                phone: loan.customerPhone,
+                loanAccountNumber: loan.loanAccountNumber,
+                loanType: loan.loanType,
+                principalAmount: loan.principalAmount,
+                interestRate: loan.interestRate,
+                calculationMethod: loan.interestCalculationMethod,
+                outstandingPrincipal: loan.outstandingPrincipal,
+                outstandingInterest: loan.outstandingInterest,
+                totalPaid: loan.totalPrincipalPaid ? new Decimal(loan.totalPrincipalPaid).plus(loan.totalInterestPaid || '0').toFixed(2) : '0.00',
+              });
+            }}
+            className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition"
+            title="Share loan balance & statement with borrower via WhatsApp"
+          >
+            <span>📲 WhatsApp Statement</span>
+          </button>
+
           {/* Record Repayment */}
           {loan.status !== 'CLOSED' && (
             <button
@@ -322,6 +375,16 @@ export const LoanDetailPage: React.FC = () => {
               <span>Record Repayment</span>
             </button>
           )}
+
+          {/* Delete Loan */}
+          <button
+            onClick={handleDeleteLoan}
+            className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition"
+            title="Admin: Delete Loan"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>Delete</span>
+          </button>
         </div>
       </div>
 
@@ -385,7 +448,11 @@ export const LoanDetailPage: React.FC = () => {
         <MetricCard
           title="Principal Disbursed"
           value={formatCurrency(loan.principalAmount)}
-          subtitle={`Interest Rate: ${loan.interestRate}% p.a.`}
+          subtitle={
+            loan.interestCalculationMethod === 'INTEREST_ONLY'
+              ? `Byaj: ${(Number(loan.interestRate) / 12).toFixed(2)}% / mo (₹${(Number(loan.interestRate) / 12).toFixed(1)} saikda)`
+              : `Interest Rate: ${loan.interestRate}% p.a.`
+          }
           icon={Banknote}
           accentColor="blue"
         />
@@ -484,6 +551,23 @@ export const LoanDetailPage: React.FC = () => {
                             title="Collect payment for this installment"
                           >
                             Pay EMI
+                          </button>
+                          <button
+                            onClick={() => {
+                              sendDueReminderWhatsApp({
+                                customerName: loan.customerName || 'Borrower',
+                                phone: loan.customerPhone,
+                                loanAccountNumber: loan.loanAccountNumber,
+                                dueDate: item.dueDate,
+                                dueAmount: item.remainingBalance || item.totalEmiAmount,
+                                principalDue: item.principalDue,
+                                interestDue: item.interestDue,
+                              });
+                            }}
+                            className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded text-[11px] font-semibold transition flex items-center space-x-1"
+                            title="Send WhatsApp payment reminder for this EMI"
+                          >
+                            <span>📲 Remind</span>
                           </button>
                           <button
                             onClick={() => handleUpdateItemStatus(item.id, item.status === 'PAUSED' ? 'UPCOMING' : 'PAUSED')}
@@ -866,6 +950,14 @@ export const LoanDetailPage: React.FC = () => {
           </div>
         </form>
       </Modal>
+
+      {/* Edit Loan Parameters Modal */}
+      <EditLoanModal
+        isOpen={isEditLoanModalOpen}
+        onClose={() => setIsEditLoanModalOpen(false)}
+        onSuccess={() => queryClient.invalidateQueries({ queryKey: ['loan-detail', id] })}
+        loan={loan}
+      />
 
       {/* Record Repayment Modal */}
       <RecordPaymentModal

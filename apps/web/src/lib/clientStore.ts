@@ -35,7 +35,7 @@ class ClientDataStore {
   public auditLogs: AuditLogEntry[] = [];
   public currentUser: User | null = null;
 
-  private STORAGE_KEY = 'lendora_client_data_v2';
+  private STORAGE_KEY = 'lendora_client_data_v4';
 
   constructor() {
     this.initDefault();
@@ -67,14 +67,14 @@ class ClientDataStore {
       const raw = localStorage.getItem(this.STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed.customers && Array.isArray(parsed.customers)) this.customers = parsed.customers;
-        if (parsed.users && Array.isArray(parsed.users)) this.users = parsed.users;
-        if (parsed.loans && Array.isArray(parsed.loans)) this.loans = parsed.loans;
-        if (parsed.payments && Array.isArray(parsed.payments)) this.payments = parsed.payments;
-        if (parsed.schedules) this.schedules = parsed.schedules;
-        if (parsed.scheduleItems) this.scheduleItems = parsed.scheduleItems;
+        if (parsed.customers && Array.isArray(parsed.customers) && parsed.customers.length > 0) this.customers = parsed.customers;
+        if (parsed.users && Array.isArray(parsed.users) && parsed.users.length > 0) this.users = parsed.users;
+        if (parsed.loans && Array.isArray(parsed.loans) && parsed.loans.length > 0) this.loans = parsed.loans;
+        if (parsed.payments && Array.isArray(parsed.payments) && parsed.payments.length > 0) this.payments = parsed.payments;
+        if (parsed.schedules && Object.keys(parsed.schedules).length > 0) this.schedules = parsed.schedules;
+        if (parsed.scheduleItems && Object.keys(parsed.scheduleItems).length > 0) this.scheduleItems = parsed.scheduleItems;
         if (parsed.customerNotes) this.customerNotes = parsed.customerNotes;
-        if (parsed.collectionTasks && Array.isArray(parsed.collectionTasks)) this.collectionTasks = parsed.collectionTasks;
+        if (parsed.collectionTasks && Array.isArray(parsed.collectionTasks) && parsed.collectionTasks.length > 0) this.collectionTasks = parsed.collectionTasks;
         if (parsed.businessProfile) this.businessProfile = parsed.businessProfile;
         if (parsed.auditLogs && Array.isArray(parsed.auditLogs)) this.auditLogs = parsed.auditLogs;
       }
@@ -163,117 +163,76 @@ class ClientDataStore {
       },
     ];
 
-    // 3. Indian Customers (Aadhaar & PAN KYC)
-    this.customers = [
-      {
-        id: 'c0000000-0000-0000-0000-000000000001',
-        businessId: this.businessProfile.id,
-        customerCode: 'CUST-IND-1001',
-        firstName: 'Vikram',
-        lastName: 'Malhotra',
-        email: 'vikram.malhotra@gmail.com',
-        phone: '+91 98201 12345',
-        idType: 'PAN',
-        idNumber: 'ABCDE1234F',
-        addressLine1: 'Flat 402, Shanti Heights, Andheri West',
-        city: 'Mumbai',
-        state: 'Maharashtra',
-        postalCode: '400053',
-        country: 'India',
-        occupation: 'Business Owner / MSME',
-        employerName: 'Malhotra Logistics Pvt Ltd',
-        monthlyIncome: '150000.00',
-        kycStatus: 'VERIFIED',
-        customerStatus: 'ACTIVE',
-        status: 'ACTIVE',
-        creditScore: 780,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'c0000000-0000-0000-0000-000000000002',
-        businessId: this.businessProfile.id,
-        customerCode: 'CUST-IND-1002',
-        firstName: 'Sunita',
-        lastName: 'Reddy',
-        email: 'sunita.reddy@yahoo.com',
-        phone: '+91 94401 56789',
-        idType: 'AADHAAR',
-        idNumber: 'XXXX-XXXX-9012',
-        addressLine1: 'Plot 88, Jubilee Hills, Road No 36',
-        city: 'Hyderabad',
-        state: 'Telangana',
-        postalCode: '500033',
-        country: 'India',
-        occupation: 'Software Consultant',
-        employerName: 'Tech Mahindra Ltd',
-        monthlyIncome: '220000.00',
-        kycStatus: 'VERIFIED',
-        customerStatus: 'ACTIVE',
-        status: 'ACTIVE',
-        creditScore: 810,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-      {
-        id: 'c0000000-0000-0000-0000-000000000003',
-        businessId: this.businessProfile.id,
-        customerCode: 'CUST-IND-1003',
-        firstName: 'Ramesh',
-        lastName: 'Kumar',
-        email: 'ramesh.kumar@gmail.com',
-        phone: '+91 98111 88990',
-        idType: 'AADHAAR',
-        idNumber: 'XXXX-XXXX-4567',
-        addressLine1: 'C-4/12, Janakpuri',
-        city: 'New Delhi',
-        state: 'Delhi',
-        postalCode: '110058',
-        country: 'India',
-        occupation: 'Retail Shopkeeper (Vyapar)',
-        employerName: 'Kumar Electronics Store',
-        monthlyIncome: '75000.00',
-        kycStatus: 'VERIFIED',
-        customerStatus: 'ACTIVE',
-        status: 'ACTIVE',
-        creditScore: 690,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-      },
-    ];
+    const cust1: Customer = {
+      id: '9a78955a-6ecc-4af8-acc8-151f0b4ae719',
+      businessId: this.businessProfile.id,
+      customerCode: 'CUST-00002',
+      firstName: 'Prince',
+      lastName: 'Soni',
+      phone: '8685554254',
+      idType: 'AADHAAR',
+      country: 'India',
+      monthlyIncome: '45000',
+      creditScore: 780,
+      kycStatus: 'VERIFIED',
+      customerStatus: 'ACTIVE',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-    // Seed Initial Active Loans & Amortization Schedules
-    const today = new Date();
-    const firstDueDate = new Date(today.getFullYear(), today.getMonth() + 1, 5).toISOString().split('T')[0];
+    const cust2: Customer = {
+      id: '65ab3388-bebf-4f96-969f-772803e2995e',
+      businessId: this.businessProfile.id,
+      customerCode: 'CUST-00004',
+      firstName: 'Kuldeep',
+      lastName: 'Kumar',
+      phone: '975644236',
+      idType: 'AADHAAR',
+      country: 'India',
+      monthlyIncome: '40000',
+      creditScore: 760,
+      kycStatus: 'VERIFIED',
+      customerStatus: 'ACTIVE',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
 
-    const scheduleGen1 = generateAmortizationSchedule({
-      principalAmount: '500000.00',
-      annualInterestRate: '14.0',
-      calculationMethod: 'EMI_REDUCING',
+    this.customers = [cust1, cust2];
+
+    const todayStr = new Date().toISOString().split('T')[0];
+    const nextMonth = new Date();
+    nextMonth.setMonth(nextMonth.getMonth() + 1);
+    const nextMonthStr = nextMonth.toISOString().split('T')[0];
+
+    const loan1Sched = generateAmortizationSchedule({
+      principalAmount: '50000',
+      annualInterestRate: '24.0',
+      calculationMethod: 'INTEREST_ONLY',
       paymentFrequency: 'MONTHLY',
-      totalInstallments: 12,
-      firstPaymentDate: firstDueDate,
-      disbursementDate: today.toISOString().split('T')[0],
+      totalInstallments: 6,
+      firstPaymentDate: nextMonthStr,
+      disbursementDate: todayStr,
     });
 
     const loan1: Loan = {
-      id: 'l0000000-0000-0000-0000-000000000001',
+      id: 'l-prince-soni-01',
       businessId: this.businessProfile.id,
-      customerId: this.customers[0].id,
-      customerName: `${this.customers[0].firstName} ${this.customers[0].lastName}`,
-      customerPhone: this.customers[0].phone,
-      loanAccountNumber: 'LND-2026-1001',
-      loanType: 'BUSINESS',
-      principalAmount: '500000.00',
-      interestRate: '14.0',
+      customerId: cust1.id,
+      customerName: 'Prince Soni',
+      customerPhone: cust1.phone,
+      customerCode: cust1.customerCode,
+      loanAccountNumber: 'LN-2026-00001',
+      loanType: 'PERSONAL',
+      principalAmount: '50000.00',
+      interestRate: '24.00',
       interestRatePeriod: 'ANNUAL',
-      interestCalculationMethod: 'EMI_REDUCING',
-      tenureValue: 12,
+      interestCalculationMethod: 'INTEREST_ONLY',
+      tenureValue: 6,
       tenureUnit: 'MONTHS',
       paymentFrequency: 'MONTHLY',
-      disbursementDate: today.toISOString().split('T')[0],
-      firstPaymentDate: firstDueDate,
-      maturityDate: scheduleGen1.maturityDate || scheduleGen1.items[scheduleGen1.items.length - 1]?.dueDate || firstDueDate,
+      disbursementDate: todayStr,
+      firstPaymentDate: nextMonthStr,
+      maturityDate: loan1Sched.maturityDate,
       processingFee: '0.00',
       insuranceFee: '0.00',
       otherCharges: '0.00',
@@ -281,132 +240,142 @@ class ClientDataStore {
       latePenaltyType: 'PERCENTAGE',
       latePenaltyValue: '5.00',
       prepaymentPenaltyRate: '0.00',
-      totalInterestExpected: scheduleGen1.totalInterestDue || '38333.33',
-      totalAmountExpected: scheduleGen1.totalRepayable || '538333.33',
-      installmentAmount: scheduleGen1.periodicInstallmentAmount || '44861.11',
-      totalInstallments: 12,
-      outstandingPrincipal: '461250.00',
-      outstandingInterest: '5833.33',
-      outstandingPenalty: '0.00',
-      outstandingFees: '0.00',
-      totalPrincipalPaid: '38750.00',
-      totalInterestPaid: '5833.33',
+      totalPrincipalPaid: '0.00',
+      totalInterestPaid: '0.00',
       totalPenaltyPaid: '0.00',
       totalFeesPaid: '0.00',
-      totalAmountPaid: '44583.33',
-      paidInstallmentsCount: 1,
+      totalAmountPaid: '0.00',
+      totalInterestExpected: loan1Sched.totalInterestDue,
+      totalAmountExpected: loan1Sched.totalRepayable,
+      installmentAmount: loan1Sched.periodicInstallmentAmount,
+      totalInstallments: 6,
+      paidInstallmentsCount: 0,
+      outstandingPrincipal: '50000.00',
+      outstandingInterest: loan1Sched.totalInterestDue,
+      outstandingPenalty: '0.00',
+      outstandingFees: '0.00',
       status: 'ACTIVE',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    const schedObj1: LoanSchedule = {
-      id: 'sch-001',
-      loanId: loan1.id,
-      versionNumber: 1,
-      isActive: true,
-      totalInstallments: 12,
-      createdAt: new Date().toISOString(),
-      items: [],
-    };
+    const loan2Sched = generateAmortizationSchedule({
+      principalAmount: '50000',
+      annualInterestRate: '24.0',
+      calculationMethod: 'INTEREST_ONLY',
+      paymentFrequency: 'MONTHLY',
+      totalInstallments: 6,
+      firstPaymentDate: nextMonthStr,
+      disbursementDate: todayStr,
+    });
 
-    this.loans = [loan1];
-    this.schedules[loan1.id] = schedObj1;
-    this.scheduleItems[loan1.id] = scheduleGen1.items.map((it, idx) => ({
-      id: `schi-1-${it.installmentNumber}`,
-      scheduleId: schedObj1.id,
-      loanId: loan1.id,
-      installmentNumber: it.installmentNumber,
-      dueDate: it.dueDate,
-      openingPrincipal: it.openingPrincipal,
-      principalDue: it.principalDue,
-      interestDue: it.interestDue,
-      feesDue: '0.00',
-      penaltyDue: '0.00',
-      totalEmiAmount: it.totalDue,
-      totalDue: it.totalDue,
-      closingPrincipal: it.closingPrincipal,
-      principalPaid: idx === 0 ? it.principalDue : '0.00',
-      interestPaid: idx === 0 ? it.interestDue : '0.00',
-      penaltyPaid: '0.00',
-      feesPaid: '0.00',
-      totalPaid: idx === 0 ? it.totalDue : '0.00',
-      remainingBalance: idx === 0 ? '0.00' : it.totalDue,
-      status: idx === 0 ? 'PAID' : 'UPCOMING',
-      paidDate: idx === 0 ? today.toISOString().split('T')[0] : undefined,
-      daysOverdue: 0,
-      latePenaltyAccrued: '0.00',
+    const loan2: Loan = {
+      id: 'l-kuldeep-kumar-02',
+      businessId: this.businessProfile.id,
+      customerId: cust2.id,
+      customerName: 'Kuldeep Kumar',
+      customerPhone: cust2.phone,
+      customerCode: cust2.customerCode,
+      loanAccountNumber: 'LN-2026-00002',
+      loanType: 'PERSONAL',
+      principalAmount: '50000.00',
+      interestRate: '24.00',
+      interestRatePeriod: 'ANNUAL',
+      interestCalculationMethod: 'INTEREST_ONLY',
+      tenureValue: 6,
+      tenureUnit: 'MONTHS',
+      paymentFrequency: 'MONTHLY',
+      disbursementDate: todayStr,
+      firstPaymentDate: nextMonthStr,
+      maturityDate: loan2Sched.maturityDate,
+      processingFee: '0.00',
+      insuranceFee: '0.00',
+      otherCharges: '0.00',
+      gracePeriodDays: 3,
+      latePenaltyType: 'PERCENTAGE',
+      latePenaltyValue: '5.00',
+      prepaymentPenaltyRate: '0.00',
+      totalPrincipalPaid: '0.00',
+      totalInterestPaid: '0.00',
+      totalPenaltyPaid: '0.00',
+      totalFeesPaid: '0.00',
+      totalAmountPaid: '0.00',
+      totalInterestExpected: loan2Sched.totalInterestDue,
+      totalAmountExpected: loan2Sched.totalRepayable,
+      installmentAmount: loan2Sched.periodicInstallmentAmount,
+      totalInstallments: 6,
+      paidInstallmentsCount: 0,
+      outstandingPrincipal: '50000.00',
+      outstandingInterest: loan2Sched.totalInterestDue,
+      outstandingPenalty: '0.00',
+      outstandingFees: '0.00',
+      status: 'ACTIVE',
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-    }));
-
-    // Seed Payment Transaction
-    const payment1: Payment = {
-      id: 'p0000000-0000-0000-0000-000000000001',
-      businessId: this.businessProfile.id,
-      loanId: loan1.id,
-      customerId: this.customers[0].id,
-      customerName: loan1.customerName,
-      loanAccountNumber: loan1.loanAccountNumber,
-      receiptNumber: 'REC-2026-00001',
-      paymentAmount: '44583.33',
-      paymentDate: today.toISOString().split('T')[0],
-      paymentMethod: 'UPI',
-      transactionReference: 'UPI-UTR-99887711',
-      principalComponent: '38750.00',
-      interestComponent: '5833.33',
-      penaltyComponent: '0.00',
-      feesComponent: '0.00',
-      feeComponent: '0.00',
-      collectedByUserId: this.users[0].id,
-      collectedByName: `${this.users[0].firstName} ${this.users[0].lastName}`,
-      isReversal: false,
-      notes: 'First EMI received via UPI',
-      createdAt: new Date().toISOString(),
     };
-    this.payments = [payment1];
 
-    // Seed Collection Tasks
-    this.collectionTasks = [
-      {
-        id: 'task-001',
-        businessId: this.businessProfile.id,
-        customerId: this.customers[2].id,
-        customerName: `${this.customers[2].firstName} ${this.customers[2].lastName}`,
-        customerPhone: this.customers[2].phone,
+    this.loans = [loan1, loan2];
+    this.schedules = {
+      [loan1.id]: { id: 'sch-1', loanId: loan1.id, versionNumber: 1, isActive: true, totalInstallments: 6, createdAt: new Date().toISOString(), items: [] },
+      [loan2.id]: { id: 'sch-2', loanId: loan2.id, versionNumber: 1, isActive: true, totalInstallments: 6, createdAt: new Date().toISOString(), items: [] },
+    };
+    this.scheduleItems = {
+      [loan1.id]: loan1Sched.items.map(it => ({
+        id: 'schi-1-' + it.installmentNumber,
+        scheduleId: 'sch-1',
         loanId: loan1.id,
-        loanAccountNumber: 'LND-2026-1003',
-        dueDate: '2026-08-15',
-        overdueAmount: '12500.00',
-        assignedAgentId: this.users[2].id,
-        assignedAgentName: 'Amit Verma',
-        priority: 'HIGH',
-        status: 'PROMISE_TO_PAY',
-        promiseToPayDate: new Date(Date.now() + 86400000 * 2).toISOString().split('T')[0],
-        promiseAmount: '12500.00',
-        contactResult: 'PROMISED',
-        notes: 'Borrower promised payment by end of week via UPI',
+        installmentNumber: it.installmentNumber,
+        dueDate: it.dueDate,
+        openingPrincipal: it.openingPrincipal,
+        principalDue: it.principalDue,
+        interestDue: it.interestDue,
+        feesDue: '0.00',
+        penaltyDue: '0.00',
+        totalEmiAmount: it.totalDue,
+        totalDue: it.totalDue,
+        closingPrincipal: it.closingPrincipal,
+        principalPaid: '0.00',
+        interestPaid: '0.00',
+        penaltyPaid: '0.00',
+        feesPaid: '0.00',
+        totalPaid: '0.00',
+        remainingBalance: it.totalDue,
+        status: 'UPCOMING',
+        daysOverdue: 0,
+        latePenaltyAccrued: '0.00',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
-      },
-    ];
-
-    // Audit logs
-    this.auditLogs = [
-      {
-        id: 'aud-001',
-        businessId: this.businessProfile.id,
-        userId: this.users[0].id,
-        userName: 'Rajesh Sharma',
-        userEmail: 'admin@lendora.com',
-        action: 'LOAN_CREATED',
-        entity: 'LOAN',
-        entityId: loan1.id,
-        newValue: { loanAccountNumber: loan1.loanAccountNumber, principalAmount: loan1.principalAmount },
-        ipAddress: '127.0.0.1',
+      })),
+      [loan2.id]: loan2Sched.items.map(it => ({
+        id: 'schi-2-' + it.installmentNumber,
+        scheduleId: 'sch-2',
+        loanId: loan2.id,
+        installmentNumber: it.installmentNumber,
+        dueDate: it.dueDate,
+        openingPrincipal: it.openingPrincipal,
+        principalDue: it.principalDue,
+        interestDue: it.interestDue,
+        feesDue: '0.00',
+        penaltyDue: '0.00',
+        totalEmiAmount: it.totalDue,
+        totalDue: it.totalDue,
+        closingPrincipal: it.closingPrincipal,
+        principalPaid: '0.00',
+        interestPaid: '0.00',
+        penaltyPaid: '0.00',
+        feesPaid: '0.00',
+        totalPaid: '0.00',
+        remainingBalance: it.totalDue,
+        status: 'UPCOMING',
+        daysOverdue: 0,
+        latePenaltyAccrued: '0.00',
         createdAt: new Date().toISOString(),
-      },
-    ];
+        updatedAt: new Date().toISOString(),
+      })),
+    };
+    this.payments = [];
+    this.collectionTasks = [];
+    this.auditLogs = [];
   }
 }
 

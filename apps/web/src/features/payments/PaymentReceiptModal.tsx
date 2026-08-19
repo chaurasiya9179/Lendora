@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Modal } from '../../components/common/Modal.js';
 import { api } from '../../lib/api.js';
 import { formatCurrency, formatDate } from '../../utils/formatters.js';
+import { sendPaymentReceiptWhatsApp } from '../../utils/whatsapp.js';
 import { Printer, Download, CheckCircle, Banknote, ShieldCheck } from 'lucide-react';
 import { PaymentReceiptData } from '@lendora/shared-types';
 
@@ -148,6 +149,26 @@ export const PaymentReceiptModal: React.FC<PaymentReceiptModalProps> = ({
               className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold rounded-xl text-xs transition"
             >
               Close
+            </button>
+            <button
+              onClick={() => {
+                sendPaymentReceiptWhatsApp({
+                  customerName: receipt.customerName,
+                  phone: receipt.customerPhone,
+                  receiptNumber: receipt.receiptNumber,
+                  paymentAmount: receipt.paymentAmount,
+                  principalPaid: receipt.principalPaid,
+                  interestPaid: receipt.interestPaid,
+                  paymentDate: receipt.paymentDate,
+                  paymentMethod: receipt.paymentMethod,
+                  loanAccountNumber: receipt.loanAccountNumber,
+                  remainingPrincipal: receipt.remainingPrincipalBalance,
+                  businessName: receipt.businessName,
+                });
+              }}
+              className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold rounded-xl shadow-lg shadow-emerald-600/20 text-xs flex items-center space-x-1.5 transition"
+            >
+              <span>📲 Send on WhatsApp</span>
             </button>
             <button
               onClick={handlePrint}

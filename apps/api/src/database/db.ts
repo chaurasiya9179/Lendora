@@ -14,6 +14,7 @@ import {
   AuditLogEntry,
   BusinessProfile,
 } from '@lendora/shared-types';
+import { generateAmortizationSchedule } from '@lendora/financial-engine';
 
 /**
  * Lendora Relational Transactional Database Engine
@@ -147,89 +148,6 @@ class LendoraDatabase {
     this.users.set(managerUser.id, managerUser);
     this.users.set(agentUser.id, agentUser);
     this.users.set(accountantUser.id, accountantUser);
-
-    // 3. Initial Indian Customers (KYC: PAN & Aadhaar)
-    const customer1: Customer = {
-      id: 'c0000000-0000-0000-0000-000000000001',
-      businessId: defaultBusinessId,
-      customerCode: 'CUST-IND-1001',
-      firstName: 'Vikram',
-      lastName: 'Malhotra',
-      email: 'vikram.malhotra@gmail.com',
-      phone: '+91 98201 12345',
-      idType: 'PAN',
-      idNumber: 'ABCDE1234F',
-      addressLine1: 'Flat 402, Shanti Heights, Andheri West',
-      city: 'Mumbai',
-      state: 'Maharashtra',
-      postalCode: '400053',
-      country: 'India',
-      occupation: 'Business Owner / MSME',
-      employerName: 'Malhotra Logistics Pvt Ltd',
-      monthlyIncome: '150000.00',
-      kycStatus: 'VERIFIED',
-      customerStatus: 'ACTIVE',
-      status: 'ACTIVE',
-      creditScore: 780,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const customer2: Customer = {
-      id: 'c0000000-0000-0000-0000-000000000002',
-      businessId: defaultBusinessId,
-      customerCode: 'CUST-IND-1002',
-      firstName: 'Sunita',
-      lastName: 'Reddy',
-      email: 'sunita.reddy@yahoo.com',
-      phone: '+91 94401 56789',
-      idType: 'AADHAAR',
-      idNumber: 'XXXX-XXXX-9012',
-      addressLine1: 'Plot 88, Jubilee Hills, Road No 36',
-      city: 'Hyderabad',
-      state: 'Telangana',
-      postalCode: '500033',
-      country: 'India',
-      occupation: 'Software Consultant',
-      employerName: 'Tech Mahindra Ltd',
-      monthlyIncome: '220000.00',
-      kycStatus: 'VERIFIED',
-      customerStatus: 'ACTIVE',
-      status: 'ACTIVE',
-      creditScore: 810,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    const customer3: Customer = {
-      id: 'c0000000-0000-0000-0000-000000000003',
-      businessId: defaultBusinessId,
-      customerCode: 'CUST-IND-1003',
-      firstName: 'Ramesh',
-      lastName: 'Kumar',
-      email: 'ramesh.kumar@gmail.com',
-      phone: '+91 98111 88990',
-      idType: 'AADHAAR',
-      idNumber: 'XXXX-XXXX-4567',
-      addressLine1: 'C-4/12, Janakpuri',
-      city: 'New Delhi',
-      state: 'Delhi',
-      postalCode: '110058',
-      country: 'India',
-      occupation: 'Retail Shopkeeper (Vyapar)',
-      employerName: 'Kumar Electronics Store',
-      monthlyIncome: '75000.00',
-      kycStatus: 'VERIFIED',
-      customerStatus: 'ACTIVE',
-      status: 'ACTIVE',
-      creditScore: 690,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-
-    this.customers.set(customer1.id, customer1);
-    this.customers.set(customer2.id, customer2);
-    this.customers.set(customer3.id, customer3);
 
     this.isInitialized = true;
   }

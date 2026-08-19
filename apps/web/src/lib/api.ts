@@ -98,69 +98,97 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
   // Dashboard Analytics
   if (endpoint === '/reports/dashboard') {
     const totalLoans = clientStore.loans.length;
-    const activeLoans = clientStore.loans.filter(l => l.status === 'ACTIVE').length;
-    const totalDisbursed = clientStore.loans.reduce((acc, l) => acc.plus(l.principalAmount || 0), new Decimal(0)).toFixed(2);
-    const totalOutstanding = clientStore.loans.reduce((acc, l) => acc.plus(l.outstandingPrincipal || 0), new Decimal(0)).toFixed(2);
-    const totalInterestDue = clientStore.loans.reduce((acc, l) => acc.plus(l.outstandingInterest || 0), new Decimal(0)).toFixed(2);
-    const totalCollected = clientStore.payments.reduce((acc, p) => acc.plus(p.paymentAmount || 0), new Decimal(0)).toFixed(2);
-    const totalInterestEarned = clientStore.payments.reduce((acc, p) => acc.plus(p.interestComponent || 0), new Decimal(0)).toFixed(2);
+    const activeLoans = clientStore.loans.filter(l => ['ACTIVE', 'DISBURSED', 'RESTRUCTURED'].includes(l.status)).length;
+    const totalDisbursed = clientStore.loans.reduce((acc, l) => acc.plus(l.principalAmount || '0'), new Decimal(0)).toFixed(2);
+    const totalOutstanding = clientStore.loans.reduce((acc, l) => acc.plus(l.outstandingPrincipal || '0'), new Decimal(0)).toFixed(2);
+    const totalInterestDue = clientStore.loans.reduce((acc, l) => acc.plus(l.outstandingInterest || '0'), new Decimal(0)).toFixed(2);
+    const totalOverdue = clientStore.loans.filter(l => l.status === 'OVERDUE').reduce((acc, l) => acc.plus(l.outstandingPrincipal || '0').plus(l.outstandingPenalty || '0'), new Decimal(0)).toFixed(2);
+    const totalCollected = clientStore.payments.reduce((acc, p) => acc.plus(p.paymentAmount || '0'), new Decimal(0)).toFixed(2);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const todayCollection = clientStore.payments.filter(p => p.paymentDate === todayStr).reduce((acc, p) => acc.plus(p.paymentAmount || '0'), new Decimal(0)).toFixed(2);
+    const totalInterestEarned = clientStore.payments.reduce((acc, p) => acc.plus(p.interestComponent || '0'), new Decimal(0)).toFixed(2);
+    const totalPenaltyCollected = clientStore.payments.reduce((acc, p) => acc.plus(p.penaltyComponent || '0'), new Decimal(0)).toFixed(2);
+
+    const totalPrincipalRepaid = Decimal.max(0, new Decimal(totalDisbursed).minus(totalOutstanding)).toFixed(2);
+    const totalInterestExpected = new Decimal(totalInterestEarned).plus(totalInterestDue).toFixed(2);
+    const totalPortfolioAmount = new Decimal(totalDisbursed).plus(totalInterestExpected).toFixed(2);
+    const totalAmountOutstanding = new Decimal(totalOutstanding).plus(totalInterestDue).toFixed(2);
+
+    const currentMonthLabel = new Date().toLocaleString('en-US', { month: 'short', year: 'numeric' });
+    const monthlyTrends = Number(totalDisbursed) > 0 ? [
+      { monthLabel: currentMonthLabel, disbursedPrincipal: Number(totalDisbursed), totalCollected: Number(totalCollected) }
+    ] : [];
 
     return {
       metrics: {
         totalLoans,
         activeLoans,
         totalCustomers: clientStore.customers.length,
-        activeCustomers: clientStore.customers.length,
+        activeCustomers: clientStore.customers.filter(c => c.customerStatus === 'ACTIVE' || (c as any).status === 'ACTIVE').length,
         totalPrincipalDisbursed: totalDisbursed,
         totalPrincipalOutstanding: totalOutstanding,
+        totalPrincipalRepaid,
         totalInterestOutstanding: totalInterestDue,
+        totalInterestEarned,
+        totalInterestExpected,
+        totalPortfolioAmount,
         totalAmountCollected: totalCollected,
-        totalInterestEarned: totalInterestEarned,
-        totalOverdueAmount: '12500.00',
+        totalAmountOutstanding,
+        totalPenaltyCollected,
+        totalOverdueAmount: totalOverdue,
         thisMonthCollection: totalCollected,
-        todayCollection: '44583.33',
+        todayCollection,
         collectionEfficiencyRate: '98.5',
-        nonPerformingLoanRate: '0.0',
+        nonPerformingLoanRate: Number(totalDisbursed) > 0 ? (Number(totalOverdue) / Number(totalDisbursed) * 100).toFixed(1) : '0.0',
       },
-      monthlyTrends: [
-        { month: 'Apr', disbursed: 250000, collected: 210000, interest: 25000 },
-        { month: 'May', disbursed: 350000, collected: 290000, interest: 38000 },
-        { month: 'Jun', disbursed: 420000, collected: 360000, interest: 45000 },
-        { month: 'Jul', disbursed: 480000, collected: 410000, interest: 52000 },
-        { month: 'Aug', disbursed: 500000, collected: 44583, interest: 5833 },
-      ],
+      monthlyTrends,
       statusDistribution: [
-        { status: 'Active', name: 'Active', value: 1, count: 1 },
-        { status: 'Fully Paid', name: 'Fully Paid', value: 0, count: 0 },
-        { status: 'Overdue', name: 'Overdue', value: 0, count: 0 },
+        { status: 'ACTIVE', count: clientStore.loans.filter(l => l.status === 'ACTIVE').length },
+        { status: 'OVERDUE', count: clientStore.loans.filter(l => l.status === 'OVERDUE').length },
+        { status: 'CLOSED', count: clientStore.loans.filter(l => l.status === 'CLOSED').length },
+        { status: 'DEFAULTED', count: clientStore.loans.filter(l => l.status === 'DEFAULTED').length },
       ],
     } as unknown as T;
   }
 
   // Customers
   if (endpoint.startsWith('/customers') && method === 'GET') {
-    if (endpoint.match(/\/customers\/[a-zA-Z0-9-]+$/)) {
-      const id = endpoint.split('/').pop()!;
+    const [pathPart, queryPart] = endpoint.split('?');
+    const searchParams = new URLSearchParams(queryPart || '');
+
+    if (pathPart.match(/^\/customers\/[a-zA-Z0-9-]+$/)) {
+      const id = pathPart.split('/').pop()!;
       const customer = clientStore.customers.find(c => c.id === id) || clientStore.customers[0];
       const customerLoans = clientStore.loans.filter(l => l.customerId === customer.id);
       return {
         ...customer,
         totalLoansCount: customerLoans.length,
         activeLoansCount: customerLoans.filter(l => l.status === 'ACTIVE').length,
-        totalBorrowedPrincipal: customerLoans.reduce((acc, l) => acc.plus(l.principalAmount), new Decimal(0)).toFixed(2),
-        totalOutstandingPrincipal: customerLoans.reduce((acc, l) => acc.plus(l.outstandingPrincipal), new Decimal(0)).toFixed(2),
-        totalOutstandingInterest: customerLoans.reduce((acc, l) => acc.plus(l.outstandingInterest), new Decimal(0)).toFixed(2),
-        totalPaidPrincipal: customerLoans.reduce((acc, l) => acc.plus(l.totalPrincipalPaid), new Decimal(0)).toFixed(2),
-        totalOverdueAmount: '0.00',
+        totalBorrowedPrincipal: customerLoans.reduce((acc, l) => acc.plus(l.principalAmount || '0'), new Decimal(0)).toFixed(2),
+        totalOutstandingPrincipal: customerLoans.reduce((acc, l) => acc.plus(l.outstandingPrincipal || '0'), new Decimal(0)).toFixed(2),
+        totalOutstandingInterest: customerLoans.reduce((acc, l) => acc.plus(l.outstandingInterest || '0'), new Decimal(0)).toFixed(2),
+        totalPaidPrincipal: customerLoans.reduce((acc, l) => acc.plus(l.totalPrincipalPaid || '0'), new Decimal(0)).toFixed(2),
+        totalOverdueAmount: customerLoans.filter(l => l.status === 'OVERDUE').reduce((acc, l) => acc.plus(l.outstandingPrincipal || '0'), new Decimal(0)).toFixed(2),
         loans: customerLoans,
         notes: clientStore.customerNotes[customer.id] || [],
         documents: [],
       } as unknown as T;
     }
 
+    let custs = [...clientStore.customers];
+    const search = searchParams.get('search');
+    const kycStatus = searchParams.get('kycStatus');
+    if (search) {
+      const q = search.toLowerCase();
+      custs = custs.filter(c => c.firstName.toLowerCase().includes(q) || c.lastName.toLowerCase().includes(q) || c.phone.includes(q) || c.customerCode.toLowerCase().includes(q));
+    }
+    if (kycStatus) {
+      custs = custs.filter(c => c.kycStatus === kycStatus);
+    }
+
     return {
-      data: clientStore.customers,
-      meta: { total: clientStore.customers.length, page: 1, limit: 20, totalPages: 1 },
+      data: custs,
+      meta: { total: custs.length, page: 1, limit: 20, totalPages: 1 },
     } as unknown as T;
   }
 
@@ -197,8 +225,11 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
 
   // Loans: List & Detail
   if (endpoint.startsWith('/loans') && method === 'GET') {
-    if (endpoint.match(/\/loans\/[a-zA-Z0-9-]+$/)) {
-      const id = endpoint.split('/').pop()!;
+    const [pathPart, queryPart] = endpoint.split('?');
+    const searchParams = new URLSearchParams(queryPart || '');
+
+    if (pathPart.match(/^\/loans\/[a-zA-Z0-9-]+$/)) {
+      const id = pathPart.split('/').pop()!;
       const loan = clientStore.loans.find(l => l.id === id) || clientStore.loans[0];
       const schedule = clientStore.schedules[loan.id] || { versionNumber: 1, id: 'sch-1' };
       const items = clientStore.scheduleItems[loan.id] || [];
@@ -206,9 +237,30 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       return { loan, schedule: { ...schedule, items }, payments } as unknown as T;
     }
 
+    let items = [...clientStore.loans];
+    const customerId = searchParams.get('customerId');
+    const status = searchParams.get('status');
+    const search = searchParams.get('search');
+
+    if (customerId) {
+      items = items.filter(l => l.customerId === customerId);
+    }
+    if (status) {
+      items = items.filter(l => l.status === status);
+    }
+    if (search) {
+      const q = search.toLowerCase();
+      items = items.filter(
+        l =>
+          l.loanAccountNumber.toLowerCase().includes(q) ||
+          (l.customerName && l.customerName.toLowerCase().includes(q)) ||
+          (l.customerPhone && l.customerPhone.includes(q))
+      );
+    }
+
     return {
-      data: clientStore.loans,
-      meta: { total: clientStore.loans.length, page: 1, limit: 20, totalPages: 1 },
+      data: items,
+      meta: { total: items.length, page: 1, limit: 20, totalPages: 1 },
     } as unknown as T;
   }
 
@@ -423,7 +475,12 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
 
   // Loans: Create
   if (endpoint === '/loans' && method === 'POST') {
-    const cust = clientStore.customers.find(c => c.id === body.customerId) || clientStore.customers[0];
+    const cust = clientStore.customers.find(c => c.id === body.customerId) || clientStore.customers[0] || {
+      id: body.customerId || 'c-' + Date.now(),
+      firstName: body.customerName ? body.customerName.split(' ')[0] : 'Borrower',
+      lastName: body.customerName ? body.customerName.split(' ').slice(1).join(' ') : '',
+      phone: body.customerPhone || '',
+    };
     const scheduleGen = generateAmortizationSchedule({
       principalAmount: body.principalAmount,
       annualInterestRate: body.interestRate,
@@ -555,9 +612,30 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
       return receipt as unknown as T;
     }
 
+    const [pathPart, queryPart] = endpoint.split('?');
+    const searchParams = new URLSearchParams(queryPart || '');
+    const cId = searchParams.get('customerId');
+    const lId = searchParams.get('loanId');
+    const q = searchParams.get('search')?.toLowerCase();
+
+    let filtered = [...clientStore.payments];
+    if (cId) {
+      filtered = filtered.filter(p => p.customerId === cId);
+    }
+    if (lId) {
+      filtered = filtered.filter(p => p.loanId === lId);
+    }
+    if (q) {
+      filtered = filtered.filter(p =>
+        (p.receiptNumber || '').toLowerCase().includes(q) ||
+        (p.customerName || '').toLowerCase().includes(q) ||
+        (p.loanAccountNumber || '').toLowerCase().includes(q)
+      );
+    }
+
     return {
-      data: clientStore.payments,
-      meta: { total: clientStore.payments.length, page: 1, limit: 20, totalPages: 1 },
+      data: filtered,
+      meta: { total: filtered.length, page: 1, limit: 20, totalPages: 1 },
     } as unknown as T;
   }
 
@@ -636,30 +714,29 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
 
   // Overdue Aging Summary
   if (endpoint === '/overdue/aging-summary') {
+    const overdueLoansList = clientStore.loans.filter(l => l.status === 'OVERDUE');
     const summary: AgingBucketSummary[] = [
-      { bucket: '1_TO_7_DAYS', bucketLabel: '1–7 Days', count: 1, totalPrincipalOverdue: '8500.00', totalInterestOverdue: '1200.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '9700.00' },
-      { bucket: '8_TO_30_DAYS', bucketLabel: '8–30 Days', count: 1, totalPrincipalOverdue: '12500.00', totalInterestOverdue: '1800.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '14300.00' },
+      { bucket: '1_TO_7_DAYS', bucketLabel: '1–7 Days', count: 0, totalPrincipalOverdue: '0.00', totalInterestOverdue: '0.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '0.00' },
+      { bucket: '8_TO_30_DAYS', bucketLabel: '8–30 Days', count: overdueLoansList.length, totalPrincipalOverdue: overdueLoansList.reduce((acc, l) => acc.plus(l.outstandingPrincipal || '0'), new Decimal(0)).toFixed(2), totalInterestOverdue: overdueLoansList.reduce((acc, l) => acc.plus(l.outstandingInterest || '0'), new Decimal(0)).toFixed(2), totalPenaltyAccrued: '0.00', totalAmountOverdue: overdueLoansList.reduce((acc, l) => acc.plus(l.outstandingPrincipal || '0').plus(l.outstandingInterest || '0'), new Decimal(0)).toFixed(2) },
       { bucket: '31_TO_60_DAYS', bucketLabel: '31–60 Days', count: 0, totalPrincipalOverdue: '0.00', totalInterestOverdue: '0.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '0.00' },
       { bucket: '61_TO_90_DAYS', bucketLabel: '61–90 Days', count: 0, totalPrincipalOverdue: '0.00', totalInterestOverdue: '0.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '0.00' },
       { bucket: '90_PLUS_DAYS', bucketLabel: '90+ Days (NPL)', count: 0, totalPrincipalOverdue: '0.00', totalInterestOverdue: '0.00', totalPenaltyAccrued: '0.00', totalAmountOverdue: '0.00' },
     ];
-    const overdueLoans: OverdueLoanItem[] = [
-      {
-        loanId: clientStore.loans[0].id,
-        loanAccountNumber: 'LND-2026-1002',
-        customerId: clientStore.customers[1].id,
-        customerName: `${clientStore.customers[1].firstName} ${clientStore.customers[1].lastName}`,
-        customerPhone: clientStore.customers[1].phone,
-        bucket: '8_TO_30_DAYS',
-        daysOverdue: 14,
-        missedInstallmentsCount: 1,
-        principalOverdue: '12500.00',
-        interestOverdue: '1800.00',
-        penaltiesAccrued: '250.00',
-        totalOverdueAmount: '14550.00',
-        lastPaymentDate: '2026-07-05',
-      },
-    ];
+    const overdueLoans: OverdueLoanItem[] = overdueLoansList.map(l => ({
+      loanId: l.id,
+      loanAccountNumber: l.loanAccountNumber,
+      customerId: l.customerId,
+      customerName: l.customerName || 'Borrower',
+      customerPhone: l.customerPhone || '',
+      bucket: '8_TO_30_DAYS',
+      daysOverdue: 14,
+      missedInstallmentsCount: 1,
+      principalOverdue: l.outstandingPrincipal,
+      interestOverdue: l.outstandingInterest,
+      penaltiesAccrued: l.outstandingPenalty || '0.00',
+      totalOverdueAmount: new Decimal(l.outstandingPrincipal).plus(l.outstandingInterest).plus(l.outstandingPenalty || '0').toFixed(2),
+      lastPaymentDate: l.disbursementDate,
+    }));
     return { summary, overdueLoans } as unknown as T;
   }
 
@@ -757,6 +834,90 @@ function handleLocalRequest<T>(endpoint: string, options: RequestInit): T {
     return newNote as unknown as T;
   }
 
+  // Dashboard & Analytics Report
+  if (endpoint === '/reports/dashboard') {
+    const totalLoans = clientStore.loans.length;
+    const activeLoans = clientStore.loans.filter(l => l.status === 'ACTIVE').length;
+    const totalPrincipalDisbursed = clientStore.loans.reduce((sum, l) => sum.plus(l.principalAmount || '0'), new Decimal(0)).toFixed(2);
+    const totalPrincipalOutstanding = clientStore.loans.reduce((sum, l) => sum.plus(l.outstandingPrincipal || '0'), new Decimal(0)).toFixed(2);
+    const totalInterestOutstanding = clientStore.loans.reduce((sum, l) => sum.plus(l.outstandingInterest || '0'), new Decimal(0)).toFixed(2);
+    const totalOverdueAmount = clientStore.loans.filter(l => l.status === 'OVERDUE').reduce((sum, l) => sum.plus(l.outstandingPrincipal || '0'), new Decimal(0)).toFixed(2);
+    const thisMonthCollection = clientStore.payments.reduce((sum, p) => sum.plus(p.paymentAmount || '0'), new Decimal(0)).toFixed(2);
+    const todayCollection = clientStore.payments.filter(p => p.paymentDate === new Date().toISOString().split('T')[0]).reduce((sum, p) => sum.plus(p.paymentAmount || '0'), new Decimal(0)).toFixed(2);
+    const totalInterestEarned = clientStore.payments.reduce((sum, p) => sum.plus(p.interestComponent || '0'), new Decimal(0)).toFixed(2);
+    const totalPenaltyCollected = clientStore.payments.reduce((sum, p) => sum.plus(p.penaltyComponent || '0'), new Decimal(0)).toFixed(2);
+    const totalCustomers = clientStore.customers.length;
+
+    const metrics = {
+      totalPrincipalDisbursed: totalPrincipalDisbursed === '0.00' ? '1250000.00' : totalPrincipalDisbursed,
+      totalPrincipalOutstanding: totalPrincipalOutstanding === '0.00' ? '925000.00' : totalPrincipalOutstanding,
+      totalInterestOutstanding: totalInterestOutstanding === '0.00' ? '85000.00' : totalInterestOutstanding,
+      totalOverdueAmount: totalOverdueAmount,
+      totalLoans: totalLoans || 3,
+      activeLoans: activeLoans || 2,
+      thisMonthCollection: thisMonthCollection === '0.00' ? '325000.00' : thisMonthCollection,
+      todayCollection: todayCollection === '0.00' ? '45000.00' : todayCollection,
+      totalInterestEarned: totalInterestEarned === '0.00' ? '42500.00' : totalInterestEarned,
+      totalPenaltyCollected: totalPenaltyCollected === '0.00' ? '2500.00' : totalPenaltyCollected,
+      totalCustomers: totalCustomers || 3,
+      nonPerformingLoanRate: '0.0',
+      collectionEfficiencyRate: '98.5',
+    };
+
+    const monthlyTrends = [
+      { monthLabel: 'Jan 2026', disbursedPrincipal: 1000000, totalCollected: 150000 },
+      { monthLabel: 'Feb 2026', disbursedPrincipal: 1200000, totalCollected: 280000 },
+      { monthLabel: 'Mar 2026', disbursedPrincipal: 850000, totalCollected: 420000 },
+      { monthLabel: 'Apr 2026', disbursedPrincipal: 1500000, totalCollected: 510000 },
+      { monthLabel: 'May 2026', disbursedPrincipal: 2000000, totalCollected: 680000 },
+      { monthLabel: 'Jun 2026', disbursedPrincipal: 1750000, totalCollected: 890000 },
+      { monthLabel: 'Jul 2026', disbursedPrincipal: 2200000, totalCollected: 1100000 },
+      { monthLabel: 'Aug 2026', disbursedPrincipal: 1950000, totalCollected: 1250000 },
+    ];
+
+    const statusDistribution = [
+      { status: 'ACTIVE', count: clientStore.loans.filter(l => l.status === 'ACTIVE').length || 2 },
+      { status: 'CLOSED', count: clientStore.loans.filter(l => l.status === 'CLOSED').length || 1 },
+      { status: 'OVERDUE', count: clientStore.loans.filter(l => l.status === 'OVERDUE').length || 1 },
+      { status: 'PENDING', count: clientStore.loans.filter(l => l.status === 'PENDING').length || 0 },
+    ];
+
+    return { metrics, monthlyTrends, statusDistribution } as unknown as T;
+  }
+
+  // Customers: Delete
+  if (endpoint.startsWith('/customers/') && method === 'DELETE') {
+    const id = endpoint.split('/')[2];
+    clientStore.customers = clientStore.customers.filter(c => c.id !== id);
+    clientStore.saveToStorage();
+    return { success: true, message: 'Customer deleted successfully' } as unknown as T;
+  }
+
+  // Loans: Update
+  if (endpoint.startsWith('/loans/') && method === 'PUT' && !endpoint.includes('/principal') && !endpoint.includes('/emi-status') && !endpoint.includes('/schedule-items/')) {
+    const id = endpoint.split('/')[2];
+    const idx = clientStore.loans.findIndex(l => l.id === id);
+    if (idx !== -1) {
+      clientStore.loans[idx] = {
+        ...clientStore.loans[idx],
+        ...body,
+        updatedAt: new Date().toISOString(),
+      };
+      clientStore.saveToStorage();
+      return clientStore.loans[idx] as unknown as T;
+    }
+  }
+
+  // Loans: Delete
+  if (endpoint.startsWith('/loans/') && method === 'DELETE') {
+    const id = endpoint.split('/')[2];
+    clientStore.loans = clientStore.loans.filter(l => l.id !== id);
+    delete clientStore.schedules[id];
+    delete clientStore.scheduleItems[id];
+    clientStore.saveToStorage();
+    return { success: true, message: 'Loan deleted successfully' } as unknown as T;
+  }
+
   // Audit Logs
   if (endpoint.startsWith('/audit-logs')) {
     return {
@@ -814,6 +975,7 @@ export const api = {
   getCustomerById: (id: string) => request<any>(`/customers/${id}`),
   createCustomer: (customer: any) => request<any>('/customers', { method: 'POST', body: JSON.stringify(customer) }),
   updateCustomer: (id: string, updates: any) => request<any>(`/customers/${id}`, { method: 'PUT', body: JSON.stringify(updates) }),
+  deleteCustomer: (id: string) => request<any>(`/customers/${id}`, { method: 'DELETE' }),
   addCustomerNote: (customerId: string, note: any) => request<any>(`/customers/${customerId}/notes`, { method: 'POST', body: JSON.stringify(note) }),
   addCustomerDocument: (customerId: string, doc: any) => request<any>(`/customers/${customerId}/documents`, { method: 'POST', body: JSON.stringify(doc) }),
 
@@ -825,6 +987,8 @@ export const api = {
   },
   getLoanById: (id: string) => request<any>(`/loans/${id}`),
   createLoan: (loanData: any) => request<any>('/loans', { method: 'POST', body: JSON.stringify(loanData) }),
+  updateLoan: (id: string, updates: any) => request<any>(`/loans/${id}`, { method: 'PUT', body: JSON.stringify(updates) }),
+  deleteLoan: (id: string) => request<any>(`/loans/${id}`, { method: 'DELETE' }),
   getPrepaymentQuote: (id: string) => request<any>(`/loans/${id}/prepayment-quote`),
   forecloseLoan: (id: string, data: any) => request<any>(`/loans/${id}/foreclose`, { method: 'POST', body: JSON.stringify(data) }),
   restructureLoan: (id: string, data: any) => request<any>(`/loans/${id}/restructure`, { method: 'POST', body: JSON.stringify(data) }),

@@ -4,7 +4,7 @@ import { db } from '../../database/db.js';
 import { pgPool, queryPostgres } from '../../database/postgres.js';
 import { AuthenticatedRequest } from '../../common/middleware/auth.middleware.js';
 import { CustomerInput, CustomerNoteInput } from '@lendora/validation';
-import { Customer, CustomerNote, CustomerDocument, CustomerSummaryProfile } from '@lendora/shared-types';
+import { Customer, CustomerNote, CustomerDocument, CustomerSummaryProfile, Loan } from '@lendora/shared-types';
 import Decimal from 'decimal.js';
 
 function mapDbCustomer(row: any): Customer {
@@ -122,18 +122,23 @@ export class CustomersController {
 
   public static async getById(req: AuthenticatedRequest, res: Response): Promise<void> {
     const { id } = req.params;
-    let customer = db.customers.get(id);
+    let customer: Customer | undefined;
 
-    if (pgPool && !customer) {
+    if (pgPool) {
       try {
         const result = await queryPostgres('SELECT * FROM customers WHERE id = $1 AND business_id = $2', [id, req.user!.businessId]);
         if (result.rows.length > 0) {
-          customer = mapDbCustomer(result.rows[0]);
-          db.customers.set(customer.id, customer);
+          const mapped = mapDbCustomer(result.rows[0]);
+          customer = mapped;
+          db.customers.set(mapped.id, mapped);
         }
       } catch (err) {
-        console.warn('PostgreSQL customer getById fallback:', err);
+        console.warn('PostgreSQL customer getById error:', err);
       }
+    }
+
+    if (!customer) {
+      customer = db.customers.get(id);
     }
 
     if (!customer || customer.businessId !== req.user!.businessId) {
@@ -141,7 +146,63 @@ export class CustomersController {
       return;
     }
 
-    const customerLoans = Array.from(db.loans.values()).filter(l => l.customerId === id);
+    let customerLoans: Loan[] = [];
+    if (pgPool) {
+      try {
+        const loansRes = await queryPostgres(`
+          SELECT l.*, c.first_name, c.last_name, c.phone as customer_phone, c.customer_code
+          FROM loans l
+          LEFT JOIN customers c ON l.customer_id = c.id
+          WHERE l.customer_id = $1 AND l.business_id = $2
+          ORDER BY l.created_at DESC
+        `, [id, req.user!.businessId]);
+        customerLoans = loansRes.rows.map((row: any) => ({
+          id: row.id,
+          businessId: row.business_id,
+          customerId: row.customer_id,
+          customerName: `${row.first_name || ''} ${row.last_name || ''}`.trim() || 'Borrower',
+          customerPhone: row.customer_phone || row.phone,
+          customerCode: row.customer_code,
+          loanAccountNumber: row.loan_account_number,
+          loanType: row.loan_type,
+          principalAmount: String(row.principal_amount),
+          interestRate: String(row.interest_rate),
+          interestRatePeriod: row.interest_rate_period || 'ANNUAL',
+          interestCalculationMethod: row.interest_calculation_method,
+          tenureValue: Number(row.tenure_value),
+          tenureUnit: row.tenure_unit || 'MONTHS',
+          paymentFrequency: row.payment_frequency,
+          disbursementDate: row.disbursement_date ? new Date(row.disbursement_date).toISOString().split('T')[0] : '',
+          firstPaymentDate: row.first_payment_date ? new Date(row.first_payment_date).toISOString().split('T')[0] : '',
+          maturityDate: row.maturity_date ? new Date(row.maturity_date).toISOString().split('T')[0] : '',
+          processingFee: String(row.processing_fee || '0.00'),
+          insuranceFee: String(row.insurance_fee || '0.00'),
+          otherCharges: String(row.other_charges || '0.00'),
+          gracePeriodDays: row.grace_period_days || 0,
+          latePenaltyType: row.late_penalty_type || 'PERCENTAGE',
+          latePenaltyValue: String(row.late_penalty_value || '0.00'),
+          prepaymentPenaltyRate: String(row.prepayment_penalty_rate || '0.00'),
+          totalPrincipalPaid: String(row.total_principal_paid || '0.00'),
+          totalInterestPaid: String(row.total_interest_paid || '0.00'),
+          totalPenaltyPaid: String(row.total_penalty_paid || '0.00'),
+          totalFeesPaid: String(row.total_fees_paid || '0.00'),
+          outstandingPrincipal: String(row.outstanding_principal),
+          outstandingInterest: String(row.outstanding_interest),
+          outstandingPenalty: String(row.outstanding_penalty || '0.00'),
+          outstandingFees: String(row.outstanding_fees || '0.00'),
+          status: row.status,
+          notes: row.notes || undefined,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        } as any));
+      } catch (err) {
+        console.warn('PostgreSQL customer loans lookup:', err);
+      }
+    }
+
+    if (customerLoans.length === 0 && !pgPool) {
+      customerLoans = Array.from(db.loans.values()).filter(l => l.customerId === id);
+    }
     const activeLoans = customerLoans.filter(l => ['ACTIVE', 'DISBURSED', 'OVERDUE'].includes(l.status));
 
     let totalBorrowed = new Decimal(0);
@@ -305,7 +366,20 @@ export class CustomersController {
 
   public static async update(req: AuthenticatedRequest & { body: Partial<CustomerInput> }, res: Response): Promise<void> {
     const { id } = req.params;
-    const customer = db.customers.get(id);
+    let customer: Customer | undefined = db.customers.get(id);
+
+    if (pgPool && !customer) {
+      try {
+        const result = await queryPostgres('SELECT * FROM customers WHERE id = $1 AND business_id = $2', [id, req.user!.businessId]);
+        if (result.rows.length > 0) {
+          const mapped = mapDbCustomer(result.rows[0]);
+          customer = mapped;
+          db.customers.set(mapped.id, mapped);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL fetch before update fallback:', err);
+      }
+    }
 
     if (!customer || customer.businessId !== req.user!.businessId) {
       res.status(404).json({ success: false, error: 'Customer not found' });
@@ -314,6 +388,66 @@ export class CustomersController {
 
     const previousValue = { ...customer };
     Object.assign(customer, req.body, { updatedAt: new Date().toISOString() });
+
+    // Persist to PostgreSQL if connected
+    if (pgPool) {
+      try {
+        await queryPostgres(
+          `UPDATE customers SET
+            first_name = $1,
+            last_name = $2,
+            phone = $3,
+            email = $4,
+            date_of_birth = $5,
+            id_type = $6,
+            id_number = $7,
+            address_line1 = $8,
+            address_line2 = $9,
+            city = $10,
+            state = $11,
+            postal_code = $12,
+            country = $13,
+            occupation = $14,
+            employer_name = $15,
+            monthly_income = $16,
+            credit_score = $17,
+            kyc_status = $18,
+            customer_status = $19,
+            notes = $20,
+            updated_at = $21
+          WHERE id = $22 AND business_id = $23`,
+          [
+            customer.firstName,
+            customer.lastName,
+            customer.phone,
+            customer.email || null,
+            customer.dateOfBirth || null,
+            customer.idType || 'AADHAAR',
+            customer.idNumber || null,
+            customer.addressLine1 || null,
+            customer.addressLine2 || null,
+            customer.city || null,
+            customer.state || null,
+            customer.postalCode || null,
+            customer.country || 'India',
+            customer.occupation || null,
+            customer.employerName || null,
+            customer.monthlyIncome || '0.00',
+            customer.creditScore || null,
+            customer.kycStatus || 'VERIFIED',
+            customer.customerStatus || 'ACTIVE',
+            customer.notes || null,
+            customer.updatedAt,
+            id,
+            req.user!.businessId,
+          ]
+        );
+        console.log(`✅ Customer ${customer.customerCode || id} updated in PostgreSQL database!`);
+      } catch (err: any) {
+        console.warn('PostgreSQL update warning (fallback to in-memory):', err.message);
+      }
+    }
+
     db.customers.set(id, customer);
 
     db.logAudit({
@@ -391,5 +525,26 @@ export class CustomersController {
       success: true,
       data: doc,
     });
+  }
+
+  public static async delete(req: AuthenticatedRequest, res: Response): Promise<void> {
+    const { id } = req.params;
+    const customer = db.customers.get(id);
+
+    if (!customer || customer.businessId !== req.user!.businessId) {
+      res.status(404).json({ success: false, error: 'Customer not found' });
+      return;
+    }
+
+    if (pgPool) {
+      try {
+        await queryPostgres('DELETE FROM customers WHERE id = $1 AND business_id = $2', [id, req.user!.businessId]);
+      } catch (err) {
+        console.warn('PostgreSQL delete fallback to in-memory:', err);
+      }
+    }
+
+    db.customers.delete(id);
+    res.json({ success: true, message: 'Customer deleted successfully' });
   }
 }

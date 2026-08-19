@@ -1,5 +1,6 @@
 import { Response } from 'express';
 import { db } from '../../database/db.js';
+import { pgPool, queryPostgres } from '../../database/postgres.js';
 import { AuthenticatedRequest } from '../../common/middleware/auth.middleware.js';
 import { RecordPaymentInput, ReversePaymentInput } from '@lendora/validation';
 import { allocatePaymentWaterfall, PendingInstallmentDue } from '@lendora/financial-engine';
@@ -11,27 +12,92 @@ export class PaymentsController {
     const businessId = req.user!.businessId;
     const { loanId, customerId, search, page = '1', limit = '20' } = req.query;
 
-    let items = Array.from(db.payments.values())
-      .filter(p => p.businessId === businessId)
-      .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
+    let items: Payment[] = [];
 
-    if (loanId && typeof loanId === 'string') {
-      items = items.filter(p => p.loanId === loanId);
-    }
+    if (pgPool) {
+      try {
+        let query = `
+          SELECT p.*, l.loan_account_number, c.first_name, c.last_name
+          FROM payments p
+          LEFT JOIN loans l ON p.loan_id = l.id
+          LEFT JOIN customers c ON p.customer_id = c.id
+          WHERE p.business_id = $1
+        `;
+        const params: any[] = [businessId];
 
-    if (customerId && typeof customerId === 'string') {
-      items = items.filter(p => p.customerId === customerId);
-    }
+        if (loanId && typeof loanId === 'string') {
+          params.push(loanId);
+          query += ` AND p.loan_id = $${params.length}`;
+        }
 
-    if (search && typeof search === 'string') {
-      const q = search.toLowerCase();
-      items = items.filter(
-        p =>
-          p.receiptNumber.toLowerCase().includes(q) ||
-          (p.transactionReference && p.transactionReference.toLowerCase().includes(q)) ||
-          (p.customerName && p.customerName.toLowerCase().includes(q)) ||
-          (p.loanAccountNumber && p.loanAccountNumber.toLowerCase().includes(q))
-      );
+        if (customerId && typeof customerId === 'string') {
+          params.push(customerId);
+          query += ` AND p.customer_id = $${params.length}`;
+        }
+
+        if (search && typeof search === 'string') {
+          params.push(`%${search.toLowerCase()}%`);
+          query += ` AND (LOWER(p.receipt_number) LIKE $${params.length} OR LOWER(p.transaction_reference) LIKE $${params.length} OR LOWER(l.loan_account_number) LIKE $${params.length} OR LOWER(c.first_name) LIKE $${params.length} OR LOWER(c.last_name) LIKE $${params.length})`;
+        }
+
+        query += ' ORDER BY p.payment_date DESC, p.created_at DESC';
+
+        const result = await queryPostgres(query, params);
+        items = result.rows.map((row: any) => ({
+          id: row.id,
+          businessId: row.business_id,
+          customerId: row.customer_id,
+          customerName: row.first_name && row.last_name ? `${row.first_name} ${row.last_name}` : row.customer_name || 'Borrower',
+          loanId: row.loan_id,
+          loanAccountNumber: row.loan_account_number || undefined,
+          receiptNumber: row.receipt_number,
+          paymentDate: row.payment_date ? new Date(row.payment_date).toISOString().split('T')[0] : '',
+          paymentAmount: String(row.payment_amount),
+          paymentMethod: row.payment_method,
+          transactionReference: row.transaction_reference || undefined,
+          principalComponent: String(row.principal_component),
+          interestComponent: String(row.interest_component),
+          penaltyComponent: String(row.penalty_component),
+          feesComponent: String(row.fees_component || '0.00'),
+          excessAmount: row.excess_amount ? String(row.excess_amount) : '0.00',
+          isReversal: Boolean(row.is_reversal),
+          reversedPaymentId: row.reversed_payment_id || undefined,
+          collectedBy: row.collected_by || undefined,
+          notes: row.notes || undefined,
+          createdAt: row.created_at ? new Date(row.created_at).toISOString() : new Date().toISOString(),
+        }));
+        for (const p of items) {
+          db.payments.set(p.id, p);
+        }
+      } catch (err) {
+        console.warn('PostgreSQL payments list fallback to in-memory:', err);
+        items = Array.from(db.payments.values())
+          .filter(p => p.businessId === businessId)
+          .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
+      }
+    } else {
+      items = Array.from(db.payments.values())
+        .filter(p => p.businessId === businessId)
+        .sort((a, b) => new Date(b.paymentDate).getTime() - new Date(a.paymentDate).getTime());
+
+      if (loanId && typeof loanId === 'string') {
+        items = items.filter(p => p.loanId === loanId);
+      }
+
+      if (customerId && typeof customerId === 'string') {
+        items = items.filter(p => p.customerId === customerId);
+      }
+
+      if (search && typeof search === 'string') {
+        const q = search.toLowerCase();
+        items = items.filter(
+          p =>
+            p.receiptNumber.toLowerCase().includes(q) ||
+            (p.transactionReference && p.transactionReference.toLowerCase().includes(q)) ||
+            (p.customerName && p.customerName.toLowerCase().includes(q)) ||
+            (p.loanAccountNumber && p.loanAccountNumber.toLowerCase().includes(q))
+        );
+      }
     }
 
     const pageNum = parseInt(page as string, 10) || 1;
@@ -47,7 +113,7 @@ export class PaymentsController {
         total,
         page: pageNum,
         limit: limitNum,
-        totalPages: Math.ceil(total / limitNum),
+        totalPages: Math.ceil(total / limitNum) || 1,
       },
     });
   }

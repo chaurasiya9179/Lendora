@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { Modal } from '../../components/common/Modal.js';
 import { api } from '../../lib/api.js';
-import { User, IDType } from '@lendora/shared-types';
-import { useQuery } from '@tanstack/react-query';
+import { User, IDType, LoanType, CalculationMethod, TenureUnit, PaymentFrequency } from '@lendora/shared-types';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { Banknote, Sparkles } from 'lucide-react';
 
 export interface CreateCustomerModalProps {
   isOpen: boolean;
@@ -15,6 +16,8 @@ export const CreateCustomerModal: React.FC<CreateCustomerModalProps> = ({
   onClose,
   onSuccess,
 }) => {
+  const queryClient = useQueryClient();
+
   const [formData, setFormData] = useState({
     firstName: '',
     lastName: '',
@@ -37,6 +40,18 @@ export const CreateCustomerModal: React.FC<CreateCustomerModalProps> = ({
     emergencyContactRelation: '',
     assignedStaffId: '',
     notes: '',
+  });
+
+  // Initial Loan Option
+  const [issueInitialLoan, setIssueInitialLoan] = useState(false);
+  const [initialLoanData, setInitialLoanData] = useState({
+    loanType: 'PERSONAL' as LoanType,
+    principalAmount: '50000',
+    interestRate: '24.0',
+    calculationMethod: 'INTEREST_ONLY' as CalculationMethod,
+    tenureValue: 6,
+    tenureUnit: 'MONTHS' as TenureUnit,
+    paymentFrequency: 'MONTHLY' as PaymentFrequency,
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -78,7 +93,47 @@ export const CreateCustomerModal: React.FC<CreateCustomerModalProps> = ({
       if (formData.emergencyContactRelation && formData.emergencyContactRelation.trim()) payload.emergencyContactRelation = formData.emergencyContactRelation.trim();
       if (formData.notes && formData.notes.trim()) payload.notes = formData.notes.trim();
 
-      await api.createCustomer(payload);
+      const newCust = await api.createCustomer(payload);
+      const createdCustomer = newCust?.data || newCust;
+      const createdCustomerId = createdCustomer?.id;
+
+      if (issueInitialLoan && createdCustomerId && Number(initialLoanData.principalAmount) > 0) {
+        const todayStr = new Date().toISOString().split('T')[0];
+        const nextMonth = new Date();
+        nextMonth.setMonth(nextMonth.getMonth() + 1);
+        const nextMonthStr = nextMonth.toISOString().split('T')[0];
+
+        await api.createLoan({
+          customerId: createdCustomerId,
+          loanType: initialLoanData.loanType,
+          principalAmount: initialLoanData.principalAmount,
+          interestRate: initialLoanData.interestRate,
+          interestRatePeriod: 'ANNUAL',
+          interestCalculationMethod: initialLoanData.calculationMethod,
+          tenureValue: initialLoanData.tenureValue,
+          tenureUnit: initialLoanData.tenureUnit,
+          paymentFrequency: initialLoanData.paymentFrequency,
+          disbursementDate: todayStr,
+          firstPaymentDate: nextMonthStr,
+          processingFee: '0',
+          insuranceFee: '0',
+          otherCharges: '0',
+          gracePeriodDays: 3,
+          latePenaltyType: 'PERCENTAGE',
+          latePenaltyValue: '5.0',
+          prepaymentPenaltyRate: '0.0',
+          notes: 'Initial loan issued during borrower registration',
+        });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ['customers'] });
+      queryClient.invalidateQueries({ queryKey: ['customers-list'] });
+      queryClient.invalidateQueries({ queryKey: ['customers-for-loan'] });
+      queryClient.invalidateQueries({ queryKey: ['loans-list'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-customers'] });
+      queryClient.invalidateQueries({ queryKey: ['dashboard-loans'] });
+
       onSuccess();
       onClose();
     } catch (err: any) {
@@ -309,6 +364,104 @@ export const CreateCustomerModal: React.FC<CreateCustomerModalProps> = ({
           </select>
         </div>
 
+        {/* Initial Loan Creation (Optional) */}
+        <div className="p-4 bg-slate-900/60 border border-slate-800 rounded-2xl space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-2">
+              <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                <Banknote className="w-4 h-4" />
+              </div>
+              <div>
+                <label className="text-xs font-bold text-slate-200 cursor-pointer flex items-center space-x-1.5">
+                  <input
+                    type="checkbox"
+                    checked={issueInitialLoan}
+                    onChange={e => setIssueInitialLoan(e.target.checked)}
+                    className="w-4 h-4 rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500"
+                  />
+                  <span>⚡ Issue Initial Loan / Udhar Now (Abhi Loan Dena Hai?)</span>
+                </label>
+                <p className="text-[11px] text-slate-400">
+                  Customer register hote hi unka loan account & byaj hisaab turant start ho jayega.
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {issueInitialLoan && (
+            <div className="pt-3 border-t border-slate-800 space-y-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Principal Amount (₹ Mool) *</label>
+                  <input
+                    type="number"
+                    required={issueInitialLoan}
+                    min="1"
+                    value={initialLoanData.principalAmount}
+                    onChange={e => setInitialLoanData({ ...initialLoanData, principalAmount: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-brand-500 font-mono font-bold"
+                    placeholder="e.g. 50000"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">
+                    Interest Rate (% p.a.) • <span className="text-emerald-400">₹{(Number(initialLoanData.interestRate) / 12).toFixed(1)} Saikda</span>
+                  </label>
+                  <input
+                    type="number"
+                    step="0.1"
+                    required={issueInitialLoan}
+                    value={initialLoanData.interestRate}
+                    onChange={e => setInitialLoanData({ ...initialLoanData, interestRate: e.target.value })}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-brand-500 font-mono"
+                    placeholder="e.g. 24 for 2% / mo"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Calculation Method (Byaj Type)</label>
+                  <select
+                    value={initialLoanData.calculationMethod}
+                    onChange={e => setInitialLoanData({ ...initialLoanData, calculationMethod: e.target.value as CalculationMethod })}
+                    className="w-full px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-brand-500 text-xs"
+                  >
+                    <option value="INTEREST_ONLY">✨ Sirf Byaj Har Mahine + Mool Aakhri me (Interest Only)</option>
+                    <option value="EMI_REDUCING">Reducing Balance EMI (Bank Standard)</option>
+                    <option value="FLAT_RATE">Flat Rate EMI</option>
+                    <option value="SIMPLE_INTEREST">Simple Interest at End</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-slate-400 font-semibold mb-1">Tenure (Installments)</label>
+                  <div className="flex space-x-2">
+                    <input
+                      type="number"
+                      min="1"
+                      required={issueInitialLoan}
+                      value={initialLoanData.tenureValue}
+                      onChange={e => setInitialLoanData({ ...initialLoanData, tenureValue: parseInt(e.target.value, 10) || 1 })}
+                      className="w-24 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-brand-500 font-mono"
+                    />
+                    <select
+                      value={initialLoanData.tenureUnit}
+                      onChange={e => setInitialLoanData({ ...initialLoanData, tenureUnit: e.target.value as TenureUnit })}
+                      className="flex-1 px-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-slate-200 focus:outline-none focus:border-brand-500"
+                    >
+                      <option value="MONTHS">Months (Mahine)</option>
+                      <option value="DAYS">Days (Din)</option>
+                      <option value="WEEKS">Weeks (Hafte)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         <div className="flex justify-end space-x-3 pt-4 border-t border-slate-800">
           <button
             type="button"
@@ -320,9 +473,18 @@ export const CreateCustomerModal: React.FC<CreateCustomerModalProps> = ({
           <button
             type="submit"
             disabled={isSubmitting}
-            className="px-5 py-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-xl shadow-lg shadow-brand-500/20 transition disabled:opacity-50"
+            className="px-5 py-2 bg-brand-600 hover:bg-brand-500 text-white font-semibold rounded-xl shadow-lg shadow-brand-500/20 transition disabled:opacity-50 flex items-center space-x-1.5"
           >
-            {isSubmitting ? 'Registering...' : 'Register Customer'}
+            {isSubmitting ? (
+              <span>Processing...</span>
+            ) : issueInitialLoan ? (
+              <>
+                <Sparkles className="w-4 h-4" />
+                <span>Register Customer & Issue Loan</span>
+              </>
+            ) : (
+              <span>Register Customer</span>
+            )}
           </button>
         </div>
       </form>

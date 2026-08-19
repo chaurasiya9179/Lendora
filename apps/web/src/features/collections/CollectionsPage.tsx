@@ -15,6 +15,7 @@ import { api } from '../../lib/api.js';
 import { StatusBadge } from '../../components/common/StatusBadge.js';
 import { Modal } from '../../components/common/Modal.js';
 import { formatCurrency, formatDate } from '../../utils/formatters.js';
+import { sendDueReminderWhatsApp } from '../../utils/whatsapp.js';
 import { CollectionTask, CollectionStatus, ContactResult } from '@lendora/shared-types';
 
 export const CollectionsPage: React.FC = () => {
@@ -194,18 +195,35 @@ export const CollectionsPage: React.FC = () => {
                       <StatusBadge status={task.status} size="sm" />
                     </td>
                     <td className="py-3 px-3 text-right">
-                      <button
-                        onClick={() => {
-                          setSelectedTask(task);
-                          setUpdateStatus(task.status);
-                          setPromiseDate(task.promiseToPayDate || new Date().toISOString().split('T')[0]);
-                          setPromiseAmount(task.promiseAmount || '');
-                        }}
-                        className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition inline-flex items-center space-x-1"
-                      >
-                        <MessageSquare className="w-3.5 h-3.5 text-brand-400" />
-                        <span>Log Call</span>
-                      </button>
+                      <div className="flex items-center justify-end space-x-1.5">
+                        <button
+                          onClick={() => {
+                            sendDueReminderWhatsApp({
+                              customerName: task.customerName,
+                              phone: task.customerPhone,
+                              loanAccountNumber: task.loanAccountNumber,
+                              dueDate: task.dueDate,
+                              dueAmount: task.overdueAmount,
+                            });
+                          }}
+                          className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/20 rounded-lg text-xs font-semibold transition inline-flex items-center space-x-1"
+                          title="Send WhatsApp payment due reminder to borrower"
+                        >
+                          <span>📲 Remind</span>
+                        </button>
+                        <button
+                          onClick={() => {
+                            setSelectedTask(task);
+                            setUpdateStatus(task.status);
+                            setPromiseDate(task.promiseToPayDate || new Date().toISOString().split('T')[0]);
+                            setPromiseAmount(task.promiseAmount || '');
+                          }}
+                          className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition inline-flex items-center space-x-1"
+                        >
+                          <MessageSquare className="w-3.5 h-3.5 text-brand-400" />
+                          <span>Log Call</span>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))

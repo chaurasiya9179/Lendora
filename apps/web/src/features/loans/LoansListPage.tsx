@@ -1,19 +1,25 @@
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { Banknote, Search, Plus, Eye, Calendar, User, TrendingUp } from 'lucide-react';
+import { Banknote, Search, Plus, Eye, Calendar, User, TrendingUp, Edit3, Trash2, Receipt } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { StatusBadge } from '../../components/common/StatusBadge.js';
 import { Pagination } from '../../components/common/Pagination.js';
 import { formatCurrency, formatDate } from '../../utils/formatters.js';
+import { sendLoanSummaryWhatsApp } from '../../utils/whatsapp.js';
 import { CreateLoanWizard } from './CreateLoanWizard.js';
+import { EditLoanModal } from './EditLoanModal.js';
+import { RecordPaymentModal } from '../payments/RecordPaymentModal.js';
 import { Loan } from '@lendora/shared-types';
 
 export const LoansListPage: React.FC = () => {
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [page, setPage] = useState(1);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [editingLoan, setEditingLoan] = useState<Loan | null>(null);
+  const [repayingLoanId, setRepayingLoanId] = useState<string | undefined>(undefined);
 
   const { data, isLoading, refetch } = useQuery({
     queryKey: ['loans-list', search, statusFilter, page],
@@ -141,13 +147,68 @@ export const LoansListPage: React.FC = () => {
                       <StatusBadge status={l.status} size="sm" />
                     </td>
                     <td className="px-6 py-4 text-right font-sans">
-                      <Link
-                        to={`/loans/${l.id}`}
-                        className="inline-flex items-center space-x-1 px-3 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition"
-                      >
-                        <Eye className="w-3.5 h-3.5 text-brand-400" />
-                        <span>View Schedule</span>
-                      </Link>
+                      <div className="flex items-center justify-end space-x-1.5">
+                        {l.status === 'ACTIVE' && (
+                          <button
+                            onClick={() => setRepayingLoanId(l.id)}
+                            className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
+                            title="Record Repayment"
+                          >
+                            <Receipt className="w-3.5 h-3.5" />
+                            <span>Repay</span>
+                          </button>
+                        )}
+                        <button
+                          onClick={() => {
+                            sendLoanSummaryWhatsApp({
+                              customerName: l.customerName || 'Borrower',
+                              phone: l.customerPhone,
+                              loanAccountNumber: l.loanAccountNumber,
+                              loanType: l.loanType,
+                              principalAmount: l.principalAmount,
+                              interestRate: l.interestRate,
+                              calculationMethod: l.interestCalculationMethod,
+                              outstandingPrincipal: l.outstandingPrincipal,
+                              outstandingInterest: l.outstandingInterest,
+                              totalPaid: l.totalPrincipalPaid,
+                            });
+                          }}
+                          className="p-1.5 bg-emerald-600/10 hover:bg-emerald-600/20 text-emerald-400 rounded-lg border border-emerald-500/20 transition"
+                          title="Send Statement on WhatsApp"
+                        >
+                          <span className="text-xs">📲</span>
+                        </button>
+                        <button
+                          onClick={() => setEditingLoan(l)}
+                          className="p-1.5 bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-amber-400 rounded-lg border border-slate-700 transition"
+                          title="Edit Loan Parameters"
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          onClick={async () => {
+                            const confirmed = window.confirm(`Delete loan account "${l.loanAccountNumber}"?`);
+                            if (!confirmed) return;
+                            try {
+                              await api.deleteLoan(l.id);
+                              refetch();
+                            } catch (err: any) {
+                              alert(err.message || 'Failed to delete loan');
+                            }
+                          }}
+                          className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg border border-rose-500/20 transition"
+                          title="Delete Loan"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                        <Link
+                          to={`/loans/${l.id}`}
+                          className="inline-flex items-center space-x-1 px-2.5 py-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition"
+                        >
+                          <Eye className="w-3.5 h-3.5 text-brand-400" />
+                          <span>Schedule</span>
+                        </Link>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -168,7 +229,39 @@ export const LoansListPage: React.FC = () => {
       <CreateLoanWizard
         isOpen={isCreateOpen}
         onClose={() => setIsCreateOpen(false)}
-        onSuccess={() => refetch()}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['loans-list'] });
+          queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] });
+          queryClient.invalidateQueries({ queryKey: ['dashboard-loans'] });
+          queryClient.invalidateQueries({ queryKey: ['customers'] });
+          refetch();
+        }}
+      />
+
+      {editingLoan && (
+        <EditLoanModal
+          isOpen={!!editingLoan}
+          onClose={() => setEditingLoan(null)}
+          onSuccess={() => {
+            queryClient.invalidateQueries({ queryKey: ['loans-list'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] });
+            queryClient.invalidateQueries({ queryKey: ['dashboard-loans'] });
+            refetch();
+          }}
+          loan={editingLoan}
+        />
+      )}
+
+      <RecordPaymentModal
+        isOpen={!!repayingLoanId}
+        onClose={() => setRepayingLoanId(undefined)}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['loans-list'] });
+          queryClient.invalidateQueries({ queryKey: ['dashboard-analytics'] });
+          queryClient.invalidateQueries({ queryKey: ['dashboard-loans'] });
+          refetch();
+        }}
+        preselectedLoanId={repayingLoanId}
       />
     </div>
   );

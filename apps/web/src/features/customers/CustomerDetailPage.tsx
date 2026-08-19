@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft,
@@ -15,22 +15,34 @@ import {
   Plus,
   Clock,
   CheckCircle,
+  Edit3,
+  Trash2,
+  Receipt,
 } from 'lucide-react';
 import { api } from '../../lib/api.js';
 import { StatusBadge } from '../../components/common/StatusBadge.js';
 import { MetricCard } from '../../components/common/MetricCard.js';
 import { formatCurrency, formatDate, formatDateTime } from '../../utils/formatters.js';
-import { CustomerSummaryProfile, CustomerNoteType } from '@lendora/shared-types';
+import { CustomerSummaryProfile, CustomerNoteType, Payment } from '@lendora/shared-types';
 import { CreateLoanWizard } from '../loans/CreateLoanWizard.js';
+import { EditCustomerModal } from './EditCustomerModal.js';
+import { RecordPaymentModal } from '../payments/RecordPaymentModal.js';
+import { PaymentReceiptModal } from '../payments/PaymentReceiptModal.js';
+import { sendPaymentReceiptWhatsApp } from '../../utils/whatsapp.js';
 
 export const CustomerDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
 
   const [noteType, setNoteType] = useState<CustomerNoteType>('CALL_LOG');
   const [noteContent, setNoteContent] = useState('');
   const [isSubmittingNote, setIsSubmittingNote] = useState(false);
   const [isNewLoanModalOpen, setIsNewLoanModalOpen] = useState(false);
+  const [isEditCustomerModalOpen, setIsEditCustomerModalOpen] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [selectedLoanId, setSelectedLoanId] = useState<string | undefined>(undefined);
+  const [viewReceiptPaymentId, setViewReceiptPaymentId] = useState<string | null>(null);
 
   const { data: customer, isLoading } = useQuery<CustomerSummaryProfile>({
     queryKey: ['customer-detail', id],
@@ -44,7 +56,19 @@ export const CustomerDetailPage: React.FC = () => {
     enabled: !!id,
   });
 
-  const loans = Array.isArray(loansData) ? loansData : (loansData?.data || []);
+  const { data: paymentsData } = useQuery({
+    queryKey: ['customer-payments', id],
+    queryFn: () => api.getPayments({ customerId: id! }),
+    enabled: !!id,
+  });
+
+  const loans = Array.isArray(loansData) 
+    ? (loansData.length > 0 ? loansData : ((customer as any)?.loans || []))
+    : (loansData?.data?.length ? loansData.data : ((customer as any)?.loans || []));
+
+  const payments: Payment[] = Array.isArray(paymentsData)
+    ? paymentsData
+    : (paymentsData?.data || []);
 
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +96,22 @@ export const CustomerDetailPage: React.FC = () => {
     queryClient.invalidateQueries({ queryKey: ['customer-detail', id] });
   };
 
+  const handleDeleteCustomer = async () => {
+    if (!id || !customer) return;
+    const confirmed = window.confirm(
+      `Are you sure you want to delete customer "${customer.firstName} ${customer.lastName}"?\n\nThis will remove their profile and records.`
+    );
+    if (!confirmed) return;
+
+    try {
+      await api.deleteCustomer(id);
+      alert('Customer deleted successfully!');
+      navigate('/customers');
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete customer');
+    }
+  };
+
   if (isLoading || !customer) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
@@ -83,7 +123,7 @@ export const CustomerDetailPage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Top Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div className="flex items-center space-x-3">
           <Link
             to="/customers"
@@ -103,10 +143,36 @@ export const CustomerDetailPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center flex-wrap gap-2">
+          {/* WhatsApp Khata Statement */}
+          <button
+            onClick={() => {
+              const msg =
+`📋 *KHATA SUMMARY (BAHI-KHATA)*
+
+Namaste *${customer.firstName} ${customer.lastName}* ji,
+
+Aapke khate ka vartaman hisaab:
+📌 *Customer ID:* ${customer.customerCode}
+💰 *Total Borrowed:* ${formatCurrency(customer.totalBorrowedPrincipal)}
+✅ *Total Principal Paid:* ${formatCurrency(customer.totalPaidPrincipal)}
+⚖️ *Current Outstanding Balance:* ${formatCurrency(customer.totalOutstandingPrincipal)}
+${Number(customer.totalOverdueAmount) > 0 ? `⚠️ *Overdue Due Amount:* ${formatCurrency(customer.totalOverdueAmount)}\n` : ''}
+Kripya kisi bhi jankari ke liye sampark karein.
+Dhanyawad! 🙏`;
+              const phone = (customer.phone || '').replace(/[^0-9]/g, '');
+              const targetPhone = phone.length === 10 ? `91${phone}` : phone;
+              window.open(`https://wa.me/${targetPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+            }}
+            className="px-3.5 py-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition shadow-sm"
+            title="Send complete Khata summary to borrower via WhatsApp"
+          >
+            <span>📲 WhatsApp Khata</span>
+          </button>
+
           <button
             onClick={handleVerifyKYC}
-            className={`px-3.5 py-2 rounded-xl text-xs font-semibold border transition flex items-center space-x-1.5 ${
+            className={`px-3 py-2 rounded-xl text-xs font-semibold border transition flex items-center space-x-1.5 ${
               customer.kycStatus === 'VERIFIED'
                 ? 'bg-slate-800 text-slate-300 border-slate-700'
                 : 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/20'
@@ -117,11 +183,28 @@ export const CustomerDetailPage: React.FC = () => {
           </button>
 
           <button
+            onClick={() => setIsEditCustomerModalOpen(true)}
+            className="px-3 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition shadow-sm"
+          >
+            <Edit3 className="w-4 h-4 text-amber-400" />
+            <span>Edit Profile</span>
+          </button>
+
+          <button
             onClick={() => setIsNewLoanModalOpen(true)}
-            className="px-4 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition shadow-lg shadow-brand-500/20"
+            className="px-3.5 py-2 bg-brand-600 hover:bg-brand-500 text-white text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition shadow-lg shadow-brand-500/20"
           >
             <Plus className="w-4 h-4" />
-            <span>Issue New Loan</span>
+            <span>Issue Loan</span>
+          </button>
+
+          <button
+            onClick={handleDeleteCustomer}
+            className="px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold rounded-xl flex items-center space-x-1.5 transition"
+            title="Delete Customer"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span>Delete</span>
           </button>
         </div>
       </div>
@@ -248,12 +331,135 @@ export const CustomerDetailPage: React.FC = () => {
                           <StatusBadge status={loan.status} size="sm" />
                         </td>
                         <td className="py-3 px-3 text-right">
-                          <Link
-                            to={`/loans/${loan.id}`}
-                            className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition"
-                          >
-                            Schedule
-                          </Link>
+                          <div className="flex items-center justify-end space-x-1.5">
+                            {loan.status === 'ACTIVE' && (
+                              <button
+                                onClick={() => {
+                                  setSelectedLoanId(loan.id);
+                                  setIsPaymentModalOpen(true);
+                                }}
+                                className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 rounded-lg text-xs font-semibold flex items-center space-x-1 transition"
+                              >
+                                <Receipt className="w-3 h-3" />
+                                <span>Repay</span>
+                              </button>
+                            )}
+                            <Link
+                              to={`/loans/${loan.id}`}
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition"
+                            >
+                              Manage
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Customer Payment History & Receipts Table */}
+          <div className="glass-panel rounded-2xl p-6 border border-slate-800 space-y-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-bold text-slate-100 uppercase tracking-wider flex items-center space-x-2">
+                  <Receipt className="w-4 h-4 text-emerald-400" />
+                  <span>Payment History & Receipts (Jamabandi)</span>
+                </h3>
+                <span className="text-xs text-slate-400">{payments.length} Payments Recorded</span>
+              </div>
+              <button
+                onClick={() => {
+                  setSelectedLoanId(loans[0]?.id);
+                  setIsPaymentModalOpen(true);
+                }}
+                className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-semibold flex items-center space-x-1.5 transition shadow-lg shadow-emerald-500/20"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ Collect Payment</span>
+              </button>
+            </div>
+
+            {payments.length === 0 ? (
+              <div className="text-center py-8 text-xs text-slate-500">
+                No payment transactions recorded for this customer yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs font-mono">
+                  <thead className="bg-slate-900/60 border-b border-slate-800 text-slate-400 font-semibold uppercase font-sans">
+                    <tr>
+                      <th className="py-2.5 px-3">Receipt / Ref</th>
+                      <th className="py-2.5 px-3">Date</th>
+                      <th className="py-2.5 px-3">Loan A/C</th>
+                      <th className="py-2.5 px-3">Amount</th>
+                      <th className="py-2.5 px-3">Mool (Prin.)</th>
+                      <th className="py-2.5 px-3">Byaj (Int.)</th>
+                      <th className="py-2.5 px-3">Method</th>
+                      <th className="py-2.5 px-3 text-right font-sans">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-800/60 text-slate-300">
+                    {payments.map((p: any) => (
+                      <tr key={p.id} className="hover:bg-slate-800/30">
+                        <td className="py-3 px-3">
+                          <div className="font-semibold text-emerald-400">{p.receiptNumber}</div>
+                          {p.transactionReference && (
+                            <div className="text-[10px] text-slate-500">{p.transactionReference}</div>
+                          )}
+                        </td>
+                        <td className="py-3 px-3 font-sans font-medium text-slate-200">
+                          {formatDate(p.paymentDate)}
+                        </td>
+                        <td className="py-3 px-3 text-brand-400 font-semibold">
+                          {p.loanAccountNumber || '—'}
+                        </td>
+                        <td className="py-3 px-3 font-bold text-slate-100">
+                          {formatCurrency(p.paymentAmount)}
+                        </td>
+                        <td className="py-3 px-3 text-emerald-400">
+                          {formatCurrency(p.principalComponent || '0.00')}
+                        </td>
+                        <td className="py-3 px-3 text-sky-400">
+                          {formatCurrency(p.interestComponent || '0.00')}
+                        </td>
+                        <td className="py-3 px-3 font-sans">
+                          <span className="px-2 py-0.5 bg-slate-800 text-slate-300 rounded text-[10px] font-medium border border-slate-700">
+                            {p.paymentMethod?.replace(/_/g, ' ')}
+                          </span>
+                        </td>
+                        <td className="py-3 px-3 text-right font-sans">
+                          <div className="flex items-center justify-end space-x-1.5">
+                            <button
+                              onClick={() => setViewReceiptPaymentId(p.id)}
+                              className="px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg text-xs font-semibold border border-slate-700 transition flex items-center space-x-1"
+                              title="View & Print Official Digital Receipt"
+                            >
+                              <FileText className="w-3 h-3 text-brand-400" />
+                              <span>Pavti</span>
+                            </button>
+                            <button
+                              onClick={() => {
+                                sendPaymentReceiptWhatsApp({
+                                  receiptNumber: p.receiptNumber,
+                                  customerName: customer.firstName + ' ' + customer.lastName,
+                                  phone: customer.phone,
+                                  loanAccountNumber: p.loanAccountNumber,
+                                  paymentDate: p.paymentDate,
+                                  paymentAmount: p.paymentAmount,
+                                  principalPaid: p.principalComponent,
+                                  interestPaid: p.interestComponent,
+                                  paymentMethod: p.paymentMethod,
+                                });
+                              }}
+                              className="px-2.5 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg text-xs font-semibold border border-emerald-500/30 transition flex items-center space-x-1"
+                              title="Send Payment Receipt on WhatsApp"
+                            >
+                              <span>📲 WhatsApp</span>
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -327,6 +533,15 @@ export const CustomerDetailPage: React.FC = () => {
         </div>
       </div>
 
+      <EditCustomerModal
+        isOpen={isEditCustomerModalOpen}
+        onClose={() => setIsEditCustomerModalOpen(false)}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['customer-detail', id] });
+        }}
+        customer={customer}
+      />
+
       <CreateLoanWizard
         isOpen={isNewLoanModalOpen}
         onClose={() => setIsNewLoanModalOpen(false)}
@@ -336,6 +551,28 @@ export const CustomerDetailPage: React.FC = () => {
         }}
         preselectedCustomerId={customer.id}
       />
+
+      <RecordPaymentModal
+        isOpen={isPaymentModalOpen}
+        onClose={() => {
+          setIsPaymentModalOpen(false);
+          setSelectedLoanId(undefined);
+        }}
+        onSuccess={() => {
+          queryClient.invalidateQueries({ queryKey: ['customer-detail', id] });
+          queryClient.invalidateQueries({ queryKey: ['customer-loans', id] });
+          queryClient.invalidateQueries({ queryKey: ['customer-payments', id] });
+        }}
+        preselectedLoanId={selectedLoanId}
+      />
+
+      {viewReceiptPaymentId && (
+        <PaymentReceiptModal
+          paymentId={viewReceiptPaymentId}
+          isOpen={true}
+          onClose={() => setViewReceiptPaymentId(null)}
+        />
+      )}
     </div>
   );
 };

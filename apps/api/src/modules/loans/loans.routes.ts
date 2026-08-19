@@ -21,6 +21,8 @@ router.post('/', rbacMiddleware(['ADMIN', 'MANAGER']), validateBody(LoanCreation
 router.get('/:id/prepayment-quote', LoansController.getPrepaymentQuote);
 router.post('/:id/foreclose', rbacMiddleware(['ADMIN', 'MANAGER', 'ACCOUNTANT']), validateBody(LoanForeclosureSchema), LoansController.foreclose as any);
 router.post('/:id/restructure', rbacMiddleware(['ADMIN', 'MANAGER']), validateBody(LoanRestructureSchema), LoansController.restructure as any);
+router.put('/:id', rbacMiddleware(['ADMIN']), LoansController.update as any);
+router.delete('/:id', rbacMiddleware(['ADMIN']), LoansController.delete as any);
 router.put('/:id/principal', rbacMiddleware(['ADMIN']), LoansController.updatePrincipal as any);
 router.put('/:id/emi-status', rbacMiddleware(['ADMIN', 'MANAGER']), LoansController.updateEmiStatus as any);
 router.put('/:id/schedule-items/:itemId/status', rbacMiddleware(['ADMIN', 'MANAGER']), LoansController.updateScheduleItemStatus as any);
